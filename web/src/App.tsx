@@ -125,7 +125,7 @@ export default function App() {
     setFutureChoice({
       patternId: selectedPattern.pattern_id,
       alternativeId: alternative.alternative_id,
-      position: { x: 2.9, y: 1.05, z: 0.72 },
+      position: { x: 3.72, y: 1.32, z: 0.78 },
     });
   };
 
@@ -155,7 +155,7 @@ export default function App() {
   };
 
   return (
-    <main className={`app-shell${showIntro ? " is-entering" : ""}`}>
+    <main className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}`}>
       <header className="topbar">
         <div className="brand-lockup">
           <Sparkle size={20} weight="fill" />
@@ -204,12 +204,15 @@ export default function App() {
             />
           ) : (
             <div className="cosmos-empty">
-              <div className="empty-orbit"><Sparkle size={26} weight="thin" /></div>
+              <div className="empty-orbit" aria-hidden="true">
+                <span />
+                <Sparkle size={17} weight="thin" />
+              </div>
               <h1>See what repeats.</h1>
               <p>Load dated experiences to turn isolated moments into evidence-linked patterns.</p>
-              <button className="primary-button" onClick={loadDemo} disabled={busy}>
-                <Database size={18} />
-                Load Personal Cosmos
+              <button className="entry-action" onClick={loadDemo} disabled={busy}>
+                <span className="entry-action__star" aria-hidden="true"><Sparkle size={15} weight="fill" /></span>
+                <span>Load Personal Cosmos</span>
               </button>
             </div>
           )}

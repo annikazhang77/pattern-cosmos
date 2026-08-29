@@ -240,6 +240,7 @@ const vertexShader = `
   uniform float uSelected;
   uniform float uVisibility;
   uniform float uTime;
+  uniform float uCollapse;
 
   void main() {
     vColor = color;
@@ -247,6 +248,14 @@ const vertexShader = `
     vPhase = aPhase;
     vec3 drifted = position;
     drifted.y += sin(position.x * 1.7 + aPhase * 6.283 + uTime * 0.08) * 0.018;
+    float collapseAngle = atan(position.y * 2.4, position.x);
+    float collapseRing = 1.12 + sin(collapseAngle * 5.0 + aPhase * 9.0) * 0.12;
+    vec3 collapsedPosition = vec3(
+      cos(collapseAngle) * collapseRing,
+      sin(collapseAngle) * collapseRing * 0.34,
+      position.z * 0.18
+    );
+    drifted = mix(drifted, collapsedPosition, uCollapse);
     vec4 mvPosition = modelViewMatrix * vec4(drifted, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     float depthScale = clamp(115.0 / -mvPosition.z, 4.0, 24.0);
@@ -344,6 +353,7 @@ const cloudFragmentShader = `
   uniform float uColorGain;
   uniform float uSaturation;
   uniform float uEmissionGain;
+  uniform float uCollapse;
 
   float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -375,7 +385,14 @@ const cloudFragmentShader = `
   }
 
   void main() {
-    vec2 p = (vUv - 0.5) * vec2(2.62, 1.78);
+    vec2 centered = (vUv - 0.5) * vec2(1.0, 1.34);
+    float collapseRadius = length(centered);
+    float collapseAngle = atan(centered.y, centered.x);
+    float collapseSwirl = uCollapse * (1.2 - smoothstep(0.12, 0.72, collapseRadius));
+    vec2 collapsedUv = vec2(cos(collapseAngle + collapseSwirl), sin(collapseAngle + collapseSwirl));
+    collapsedUv /= vec2(1.0, 1.34);
+    collapsedUv = 0.5 + collapsedUv * mix(collapseRadius, 0.34 + (collapseRadius - 0.3) * 0.3, uCollapse);
+    vec2 p = (mix(vUv, collapsedUv, uCollapse) - 0.5) * vec2(2.62, 1.78);
     float slowTime = uTime * 0.009;
     vec2 warp = vec2(
       fbm(p * 0.82 + vec2(uSeed * 3.1 + slowTime, 1.7)),
@@ -409,7 +426,10 @@ const cloudFragmentShader = `
     float borderFade = smoothstep(0.0, 0.2, borderDistance);
     float structure = density * mix(0.66, 1.0, cavities);
     float alpha = structure * edge * borderFade * (1.0 - dustLane * 0.94);
+    float collapseRing = exp(-pow((collapseRadius - 0.29) / 0.085, 2.0));
+    float collapseFlare = smoothstep(0.08, 0.48, uCollapse) * (1.0 - smoothstep(0.58, 0.94, uCollapse));
     alpha *= uOpacity * mix(0.92, 1.34, uSelected) * uVisibility;
+    alpha *= mix(1.0, collapseRing, uCollapse * 0.94);
 
     float colorZone = fbm(warped * 0.82 + vec2(7.2, uSeed * 3.7));
     vec3 color = mix(uColorA, uColorC, smoothstep(0.48, 0.78, colorZone));
@@ -420,6 +440,7 @@ const cloudFragmentShader = `
     float luminousKnots = pow(smoothstep(0.48, 0.88, emissionRegion * 0.74 + emission * 0.62), 1.35);
     color *= (0.3 + density * 1.08 + softCore * 0.72 + emission * 1.48 + luminousKnots * uEmissionGain) * uColorGain;
     color *= mix(0.17, 1.0, 1.0 - dustLane);
+    color *= 1.0 + collapseFlare * 0.82 + collapseRing * uCollapse * 0.28;
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(color, alpha);
   }
@@ -430,6 +451,7 @@ const hybridNebulaVertexShader = `
   varying vec2 vUv;
   uniform float uTime;
   uniform float uLayer;
+  uniform float uCollapse;
 
   void main() {
     vUv = uv;
@@ -438,6 +460,13 @@ const hybridNebulaVertexShader = `
     float broadBend = sin(uv.x * 5.1 + slow) * cos(uv.y * 4.3 - slow * 0.7);
     float fineBend = sin((uv.x + uv.y) * 13.0 - slow * 1.3) * 0.35;
     shaped.z += (broadBend + fineBend) * (0.035 + uLayer * 0.012);
+    float radius = length(shaped.xy);
+    float pull = mix(1.0, mix(0.47, 0.78, smoothstep(0.7, 3.0, radius)), uCollapse);
+    float twist = uCollapse * (1.18 - smoothstep(0.4, 3.2, radius)) * (1.0 + uLayer * 0.09);
+    float cosine = cos(twist);
+    float sine = sin(twist);
+    shaped.xy = mat2(cosine, -sine, sine, cosine) * shaped.xy * pull;
+    shaped.z += sin(radius * 2.7 + uLayer * 1.3) * uCollapse * 0.08;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(shaped, 1.0);
   }
 `;
@@ -454,6 +483,7 @@ const hybridNebulaFragmentShader = `
   uniform float uOpacity;
   uniform float uSelected;
   uniform float uVisibility;
+  uniform float uCollapse;
   uniform vec2 uUvOffset;
   uniform vec2 uUvScale;
 
@@ -480,11 +510,21 @@ const hybridNebulaFragmentShader = `
 
   void main() {
     float slow = uTime * 0.006;
+    vec2 collapsePoint = (vUv - 0.5) * vec2(1.0, 1.22);
+    float collapseRadius = length(collapsePoint);
+    float collapseAngle = atan(collapsePoint.y, collapsePoint.x);
+    float ringRadius = 0.29 + sin(collapseAngle * 4.0 - uTime * 0.09 + uLayer) * 0.012;
+    float sourceRadius = mix(collapseRadius, 0.39 + (collapseRadius - ringRadius) * 0.34, uCollapse);
+    float polarTwist = uCollapse * (1.4 - smoothstep(0.12, 0.7, collapseRadius)) + uLayer * 0.035;
+    vec2 collapseUv = vec2(cos(collapseAngle + polarTwist), sin(collapseAngle + polarTwist));
+    collapseUv /= vec2(1.0, 1.22);
+    collapseUv = 0.5 + collapseUv * sourceRadius;
     vec2 flow = vec2(
       noise2d(vUv * 3.4 + vec2(slow, uLayer * 2.7)),
       noise2d(vUv * 3.1 + vec2(8.2 + uLayer, -slow))
     ) - 0.5;
-    vec2 uv = (vUv - 0.5) * uUvScale + 0.5 + uUvOffset + flow * (0.009 + uLayer * 0.002);
+    vec2 baseUv = mix(vUv, collapseUv, uCollapse);
+    vec2 uv = (baseUv - 0.5) * uUvScale + 0.5 + uUvOffset + flow * (0.009 + uLayer * 0.002);
     if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) discard;
 
     vec2 texel = vec2(1.0 / 1757.0, 1.0 / 1417.0);
@@ -532,7 +572,16 @@ const hybridNebulaFragmentShader = `
       alpha = dust * 0.18;
     }
 
+    float collapseRing = exp(-pow((collapseRadius - ringRadius) / 0.09, 2.0));
+    float collapseFlare = smoothstep(0.08, 0.48, uCollapse) * (1.0 - smoothstep(0.58, 0.94, uCollapse));
     alpha *= borderFade * asymmetricMask * uOpacity * selectGain * uVisibility;
+    alpha *= mix(1.0, collapseRing * (0.9 + chroma * 0.46), uCollapse * 0.94);
+    color *= 1.0 + collapseFlare * 0.78 + uCollapse * collapseRing * 0.26;
+    float darkCore = 1.0 - smoothstep(0.09, 0.145, collapseRadius);
+    if (uLayer > 0.5 && uLayer < 1.5) {
+      color = mix(color, vec3(0.001, 0.002, 0.004), darkCore * uCollapse);
+      alpha = max(alpha, darkCore * uCollapse * 0.985);
+    }
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(color, alpha);
   }
@@ -942,6 +991,7 @@ function NebulaCloudLayer({
   opacity,
   dimmed,
   visual,
+  collapsed,
 }: {
   colors: [string, string, string];
   seed: number;
@@ -952,6 +1002,7 @@ function NebulaCloudLayer({
   opacity: number;
   dimmed: boolean;
   visual: VisualPreset;
+  collapsed: boolean;
 }) {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
   const uniforms = useMemo(() => ({
@@ -967,6 +1018,7 @@ function NebulaCloudLayer({
     uColorGain: { value: visual.colorGain },
     uSaturation: { value: visual.saturation },
     uEmissionGain: { value: visual.emissionGain },
+    uCollapse: { value: collapsed ? 1 : 0 },
   }), [colors, opacity, seed, visual]);
 
   useFrame((state, delta) => {
@@ -982,6 +1034,12 @@ function NebulaCloudLayer({
       materialRef.current.uniforms.uVisibility.value,
       dimmed ? 0.18 : 1,
       4,
+      delta,
+    );
+    materialRef.current.uniforms.uCollapse.value = THREE.MathUtils.damp(
+      materialRef.current.uniforms.uCollapse.value,
+      collapsed ? 1 : 0,
+      collapsed ? 1.55 : 2.1,
       delta,
     );
   });
@@ -1092,15 +1150,18 @@ function HybridPhotographicLayer({
   colors,
   selected,
   dimmed,
+  collapsed,
   spec,
 }: {
   texture: THREE.Texture;
   colors: [string, string, string];
   selected: boolean;
   dimmed: boolean;
+  collapsed: boolean;
   spec: HybridLayerSpec;
 }) {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
   const uniforms = useMemo(() => ({
     uTexture: { value: texture },
     uColorA: { value: new THREE.Color(colors[0]) },
@@ -1111,6 +1172,7 @@ function HybridPhotographicLayer({
     uOpacity: { value: spec.opacity },
     uSelected: { value: selected ? 1 : 0 },
     uVisibility: { value: dimmed ? 0.12 : 1 },
+    uCollapse: { value: collapsed ? 1 : 0 },
     uUvOffset: { value: new THREE.Vector2(...spec.uvOffset) },
     uUvScale: { value: new THREE.Vector2(...spec.uvScale) },
   }), [colors, dimmed, selected, spec, texture]);
@@ -1130,10 +1192,25 @@ function HybridPhotographicLayer({
       4,
       delta,
     );
+    materialRef.current.uniforms.uCollapse.value = THREE.MathUtils.damp(
+      materialRef.current.uniforms.uCollapse.value,
+      collapsed ? 1 : 0,
+      collapsed ? 1.55 : 2.1,
+      delta,
+    );
+    if (meshRef.current) {
+      const progress = materialRef.current.uniforms.uCollapse.value;
+      meshRef.current.scale.set(
+        spec.scale[0] * (1 - progress * 0.12),
+        spec.scale[1] * (1 - progress * 0.12),
+        spec.scale[2],
+      );
+      meshRef.current.rotation.z = spec.rotation[2] + progress * (spec.layer - 1.5) * 0.055;
+    }
   });
 
   return (
-    <mesh position={spec.position} rotation={spec.rotation} scale={spec.scale}>
+    <mesh ref={meshRef} position={spec.position} rotation={spec.rotation} scale={spec.scale}>
       <planeGeometry args={[5.8, 4.34, 48, 32]} />
       <shaderMaterial
         ref={materialRef}
@@ -1154,10 +1231,12 @@ function HybridPhotographicNebula({
   colors,
   selected,
   dimmed,
+  collapsed,
 }: {
   colors: [string, string, string];
   selected: boolean;
   dimmed: boolean;
+  collapsed: boolean;
 }) {
   const texture = useTexture("/assets/nasa-lagoon-nebula-pia14728.jpg");
 
@@ -1178,6 +1257,7 @@ function HybridPhotographicNebula({
           colors={colors}
           selected={selected}
           dimmed={dimmed}
+          collapsed={collapsed}
           spec={spec}
         />
       ))}
@@ -1553,21 +1633,52 @@ function ExperienceStars({
   selected,
   dimmed,
   volumetric = false,
+  collapsed,
+  onSelect,
 }: {
   pattern: Pattern;
   selected: boolean;
   dimmed: boolean;
   volumetric?: boolean;
+  collapsed: boolean;
+  onSelect: () => void;
 }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const [hoveredEvidenceId, setHoveredEvidenceId] = useState<string | null>(null);
   const stars = useMemo(
     () => createExperiencePositions(pattern, volumetric),
     [pattern, volumetric],
   );
   const glowTexture = useRadialGlowTexture();
+  useFrame((_, delta) => {
+    if (!groupRef.current) return;
+    const target = collapsed ? 0.78 : 1;
+    const next = THREE.MathUtils.damp(groupRef.current.scale.x, target, collapsed ? 1.5 : 2.2, delta);
+    groupRef.current.scale.setScalar(next);
+    groupRef.current.rotation.z += delta * (collapsed ? 0.024 : 0);
+  });
   return (
-    <group>
+    <group ref={groupRef}>
       {stars.map((star) => (
         <group key={star.id} position={star.position}>
+          <mesh
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect();
+            }}
+            onPointerOver={(event) => {
+              event.stopPropagation();
+              setHoveredEvidenceId(star.id);
+              document.body.style.cursor = "pointer";
+            }}
+            onPointerOut={() => {
+              setHoveredEvidenceId(null);
+              document.body.style.cursor = "default";
+            }}
+          >
+            <sphereGeometry args={[0.12, 10, 10]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+          </mesh>
           <mesh>
             <sphereGeometry args={[star.contradiction ? 0.038 : 0.03, 10, 10]} />
             <meshBasicMaterial
@@ -1587,102 +1698,34 @@ function ExperienceStars({
               depthWrite={false}
             />
           </sprite>
+          {hoveredEvidenceId === star.id && !selected && (
+            <Html position={[0.08, 0.12, 0]} style={{ pointerEvents: "none" }}>
+              <div className="evidence-peek">
+                <strong>{pattern.name}</strong>
+                <span>{star.contradiction ? "Contradicts this pattern" : "Supports this pattern"}</span>
+              </div>
+            </Html>
+          )}
         </group>
       ))}
     </group>
   );
 }
 
-const blackHoleVertexShader = `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const blackHoleFragmentShader = `
-  varying vec2 vUv;
-  uniform float uTime;
-  float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-  }
-  void main() {
-    vec2 p = vUv - 0.5;
-    p.y *= 2.05;
-    float radius = length(p);
-    float angle = atan(p.y, p.x);
-    float warp = sin(angle * 5.0 - uTime * 0.22) * 0.012;
-    warp += sin(angle * 11.0 + uTime * 0.13) * 0.006;
-    float ring = exp(-pow((radius - 0.285 - warp) / 0.046, 2.0));
-    float outer = exp(-pow((radius - 0.38 + warp * 0.5) / 0.085, 2.0)) * 0.24;
-    float core = 1.0 - smoothstep(0.12, 0.235, radius);
-    float flicker = 0.82 + hash(vec2(floor(angle * 18.0), floor(uTime * 1.3))) * 0.18;
-    vec3 warm = mix(vec3(0.95, 0.49, 0.16), vec3(1.0, 0.87, 0.56), smoothstep(-0.4, 0.7, p.x));
-    vec3 color = warm * ring * flicker + vec3(0.16, 0.44, 0.52) * outer;
-    color *= 1.0 - core * 0.98;
-    float alpha = max(core * 0.96, ring * 0.88 + outer);
-    alpha *= 1.0 - smoothstep(0.48, 0.62, radius);
-    if (alpha < 0.006) discard;
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
-
-function BlackHoleVisual() {
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
-  const dustRef = useRef<THREE.Group>(null);
-  const dust = useMemo(() => {
-    const random = mulberry32(927451);
-    return Array.from({ length: 72 }, (_, index) => {
-      const angle = random() * Math.PI * 2;
-      const radius = 0.82 + random() * 0.82;
-      return {
-        id: index,
-        position: [
-          Math.cos(angle) * radius,
-          Math.sin(angle) * radius * 0.28,
-          (random() - 0.5) * 0.16,
-        ] as [number, number, number],
-        size: 0.008 + random() * 0.018,
-        opacity: 0.18 + random() * 0.42,
-      };
-    });
-  }, []);
-
-  useFrame((state, delta) => {
-    if (materialRef.current) materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
-    if (dustRef.current) dustRef.current.rotation.z -= delta * 0.035;
+function CollapseCore({ active }: { active: boolean }) {
+  const coreRef = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (!coreRef.current) return;
+    const target = active ? 1 : 0.001;
+    const next = THREE.MathUtils.damp(coreRef.current.scale.x, target, active ? 1.7 : 2.2, delta);
+    coreRef.current.scale.setScalar(next);
   });
-
   return (
-    <group position={[0.05, 0.02, 1.26]}>
-      <mesh scale={[1.6, 1.12, 1]}>
-        <planeGeometry args={[2.45, 2.45]} />
-        <shaderMaterial
-          ref={materialRef}
-          vertexShader={blackHoleVertexShader}
-          fragmentShader={blackHoleFragmentShader}
-          uniforms={{ uTime: { value: 0 } }}
-          transparent
-          depthWrite={false}
-          blending={THREE.NormalBlending}
-          toneMapped={false}
-        />
+    <group ref={coreRef} position={[0.03, 0.01, 1.03]} scale={0.001}>
+      <mesh scale={[1, 0.72, 0.62]}>
+        <sphereGeometry args={[0.34, 28, 20]} />
+        <meshBasicMaterial color="#010204" depthWrite={false} toneMapped={false} />
       </mesh>
-      <group ref={dustRef} rotation={[0, 0, -0.08]}>
-        {dust.map((point) => (
-          <mesh key={point.id} position={point.position} scale={point.size}>
-            <sphereGeometry args={[1, 6, 6]} />
-            <meshBasicMaterial
-              color="#f2cf72"
-              transparent
-              opacity={point.opacity}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </mesh>
-        ))}
-      </group>
     </group>
   );
 }
@@ -1810,6 +1853,7 @@ function GoldenEscapeTrajectory({
   blackHole: boolean;
 }) {
   const starRef = useRef<THREE.Group>(null);
+  const destinationRef = useRef<THREE.Group>(null);
   const trailMaterialRef = useRef<THREE.ShaderMaterial>(null);
   const glowTexture = useRadialGlowTexture();
   const progressRef = useRef(animationId > 0 ? 0 : 1);
@@ -1818,19 +1862,45 @@ function GoldenEscapeTrajectory({
     [],
   );
   const curve = useMemo(() => {
-    const start = new THREE.Vector3(blackHole ? 0.18 : 0.52, blackHole ? 0.04 : -0.08, 1.18);
+    const start = new THREE.Vector3(blackHole ? -0.38 : 0.46, blackHole ? -0.08 : -0.12, 1.12);
     const end = new THREE.Vector3(target.x, target.y, target.z);
-    const lift = Math.max(0.8, Math.abs(end.y - start.y) * 0.55);
-    return new THREE.CatmullRomCurve3([
+    return new THREE.CubicBezierCurve3(
       start,
-      new THREE.Vector3(start.x + 0.72, start.y + lift * 0.72, start.z + 0.12),
-      new THREE.Vector3(end.x - 0.74, end.y + lift * 0.34, end.z + 0.18),
+      blackHole
+        ? new THREE.Vector3(-0.18, 1.34, 1.34)
+        : new THREE.Vector3(1.02, 1.72, 1.36),
+      new THREE.Vector3(end.x - 1.18, end.y + 0.72, end.z + 0.26),
       end,
-    ]);
+    );
   }, [blackHole, target.x, target.y, target.z]);
+  const currentOrbit = useMemo(() => {
+    const points: THREE.Vector3[] = [];
+    const startAngle = blackHole ? -2.9 : -2.4;
+    const endAngle = blackHole ? 1.05 : 0.7;
+    for (let index = 0; index < 56; index += 1) {
+      const progress = index / 55;
+      const angle = THREE.MathUtils.lerp(startAngle, endAngle, progress);
+      const radius = blackHole ? 0.78 + progress * 0.12 : 1.0 + progress * 0.18;
+      points.push(new THREE.Vector3(
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius * (blackHole ? 0.34 : 0.48),
+        1.02 + Math.sin(progress * Math.PI) * 0.13,
+      ));
+    }
+    return points;
+  }, [blackHole]);
   const trailGeometry = useMemo(() => {
-    const count = 84;
-    const points = curve.getPoints(count - 1);
+    const count = 176;
+    const random = mulberry32(77831 + Math.round(target.x * 100));
+    const points = Array.from({ length: count }, (_, index) => {
+      const progress = index / (count - 1);
+      const point = curve.getPoint(progress);
+      const spread = 0.012 + progress * 0.022;
+      point.x += (random() - 0.5) * spread;
+      point.y += (random() - 0.5) * spread;
+      point.z += (random() - 0.5) * spread;
+      return point;
+    });
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     geometry.setAttribute(
       "aProgress",
@@ -1847,21 +1917,36 @@ function GoldenEscapeTrajectory({
 
   useFrame((_, delta) => {
     if (progressRef.current < 1) {
-      progressRef.current = Math.min(1, progressRef.current + delta / 2.15);
+      progressRef.current = Math.min(1, progressRef.current + delta / 3.0);
     }
-    const eased = 1 - Math.pow(1 - progressRef.current, 3);
+    const eased = progressRef.current < 0.5
+      ? 4 * progressRef.current * progressRef.current * progressRef.current
+      : 1 - Math.pow(-2 * progressRef.current + 2, 3) / 2;
     if (starRef.current) starRef.current.position.copy(curve.getPoint(eased));
+    if (destinationRef.current) {
+      const reveal = THREE.MathUtils.smoothstep(eased, 0.82, 1);
+      destinationRef.current.scale.setScalar(Math.max(0.001, reveal));
+    }
     if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = eased;
   });
 
   return (
     <group>
       <Line
-        points={curve.getPoints(48)}
-        color="#dfb34d"
-        lineWidth={0.36}
+        points={currentOrbit}
+        color="#78909c"
+        lineWidth={0.58}
         transparent
-        opacity={0.15}
+        opacity={0.28}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+      <Line
+        points={curve.getPoints(82)}
+        color="#e8c66c"
+        lineWidth={0.82}
+        transparent
+        opacity={0.46}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
       />
@@ -1895,6 +1980,26 @@ function GoldenEscapeTrajectory({
             depthWrite={false}
           />
         </sprite>
+      </group>
+      <group ref={destinationRef} position={[target.x, target.y, target.z]} scale={0.001}>
+        <mesh>
+          <sphereGeometry args={[0.085, 18, 18]} />
+          <meshBasicMaterial color="#fff4cf" toneMapped={false} />
+        </mesh>
+        <sprite scale={[0.82, 0.82, 1]}>
+          <spriteMaterial map={glowTexture} color="#e7c468" transparent opacity={0.66} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </sprite>
+        {[
+          [-0.27, 0.16, -0.04],
+          [0.24, 0.2, 0.05],
+          [0.31, -0.14, -0.03],
+          [-0.21, -0.23, 0.06],
+        ].map((position, index) => (
+          <mesh key={index} position={position as [number, number, number]}>
+            <sphereGeometry args={[0.026, 8, 8]} />
+            <meshBasicMaterial color={index % 2 === 0 ? "#f5dda0" : "#eef6f2"} toneMapped={false} />
+          </mesh>
+        ))}
       </group>
     </group>
   );
@@ -1992,6 +2097,12 @@ function PatternNebula({
         4,
         delta,
       );
+      materialRef.current.uniforms.uCollapse.value = THREE.MathUtils.damp(
+        materialRef.current.uniforms.uCollapse.value,
+        pattern.visual_state === "black_hole" ? 1 : 0,
+        pattern.visual_state === "black_hole" ? 1.55 : 2.1,
+        delta,
+      );
     }
     if (groupRef.current) {
       groupRef.current.rotation.z += delta * (selected ? 0.006 : 0.0025);
@@ -2019,6 +2130,7 @@ function PatternNebula({
           colors={spec.colors}
           selected={selected || hovered}
           dimmed={dimmed}
+          collapsed={pattern.visual_state === "black_hole"}
         />
       ) : (
         <>
@@ -2041,6 +2153,7 @@ function PatternNebula({
             opacity={dominant ? visual.cloudOpacity[0] : 0.7}
             dimmed={dimmed}
             visual={visual}
+            collapsed={pattern.visual_state === "black_hole"}
           />
           <NebulaCloudLayer
             colors={[spec.colors[1], spec.colors[2], spec.colors[0]]}
@@ -2052,6 +2165,7 @@ function PatternNebula({
             opacity={dominant ? visual.cloudOpacity[1] : 0.38}
             dimmed={dimmed}
             visual={visual}
+            collapsed={pattern.visual_state === "black_hole"}
           />
           <points geometry={geometry} frustumCulled={false}>
             <shaderMaterial
@@ -2067,6 +2181,7 @@ function PatternNebula({
                 uTime: { value: 0 },
                 uSelected: { value: selected ? 1 : 0 },
                 uVisibility: { value: dimmed ? 0.12 : 1 },
+                uCollapse: { value: pattern.visual_state === "black_hole" ? 1 : 0 },
                 uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) },
               }}
             />
@@ -2079,9 +2194,11 @@ function PatternNebula({
         selected={selected || hovered}
         dimmed={dimmed}
         volumetric={usesPhotographicHybrid || usesPhotographicDepth}
+        collapsed={pattern.visual_state === "black_hole"}
+        onSelect={onSelect}
       />
 
-      {pattern.visual_state === "black_hole" && !dimmed && <BlackHoleVisual />}
+      <CollapseCore active={pattern.visual_state === "black_hole" && !dimmed} />
 
       {selected && futureChoice && (
         <FutureChoiceStar
@@ -2091,7 +2208,7 @@ function PatternNebula({
         />
       )}
 
-      {selected && changedOrbit && (
+      {changedOrbit && (
         <GoldenEscapeTrajectory
           target={changedOrbit.future_choice_position}
           animationId={escapeAnimationId}
@@ -2138,10 +2255,12 @@ function CameraRig({
   selectedFrame,
   orbitPreset,
   homeCamera,
+  trajectoryActive,
 }: {
   selectedFrame: FocusFrame | null;
   orbitPreset: "D" | "D2" | null;
   homeCamera: [number, number, number];
+  trajectoryActive: boolean;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
@@ -2149,19 +2268,19 @@ function CameraRig({
 
   useEffect(() => {
     transitionStrength.current = 1;
-  }, [selectedFrame]);
+  }, [selectedFrame, trajectoryActive]);
 
   useFrame((_, delta) => {
     const orbit = controls.current;
     if (!orbit || transitionStrength.current < 0.002) return;
     const target = selectedFrame
       ? new THREE.Vector3(...selectedFrame.position)
-        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(0.54))
+        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(trajectoryActive ? 1.9 : 0.54))
         .add(new THREE.Vector3(0, 0.04, 0))
       : new THREE.Vector3(0, 0, 0);
     const destination = selectedFrame
       ? target.clone()
-        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(9.35))
+        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(trajectoryActive ? 12.9 : 9.35))
         .add(new THREE.Vector3(0, 0.08, 0))
       : new THREE.Vector3(...homeCamera);
     orbit.target.lerp(target, 1 - Math.exp(-delta * 3.2));
@@ -2219,6 +2338,7 @@ function Scene({
 }: ThreeCosmosViewProps & { visual: VisualPreset }) {
   const nebulaSpecs = useMemo(() => [visual.main, ...SATELLITE_NEBULAE], [visual]);
   const selectedIndex = patterns.findIndex((pattern) => pattern.pattern_id === selectedPatternId);
+  const trajectoryActive = selectedPatternId !== null && Boolean(changedOrbits[selectedPatternId]);
   const selectedFrame = useMemo(() => {
     if (selectedIndex < 0) return null;
     const spec = nebulaSpecs[selectedIndex % nebulaSpecs.length];
@@ -2265,6 +2385,7 @@ function Scene({
         selectedFrame={selectedFrame}
         orbitPreset={visual.name === "D" || visual.name === "D2" ? visual.name : null}
         homeCamera={visual.camera}
+        trajectoryActive={trajectoryActive}
       />
       <EffectComposer multisampling={0}>
         <Bloom
