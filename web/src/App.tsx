@@ -9,6 +9,7 @@ import type {
   AlternativeResponse,
   AppState,
   CosmicEventState,
+  FortuneStage,
   FutureChoicePosition,
   InteractionMode,
   VisualState,
@@ -42,6 +43,7 @@ export default function App() {
   const [escapeAnimationId, setEscapeAnimationId] = useState(0);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("READ_MODE");
   const [cosmicEvent, setCosmicEvent] = useState<CosmicEventState | null>(null);
+  const [fortuneStages, setFortuneStages] = useState<Record<string, FortuneStage>>({});
   const settleTimer = useRef<number | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
@@ -93,6 +95,7 @@ export default function App() {
   const loadDemo = () => run(api.loadDemo, (nextState) => {
     setState(nextState);
     setSelectedPatternId(null);
+    setFortuneStages({});
   });
 
   const addExperience = (date: string, text: string) => run(
@@ -151,9 +154,23 @@ export default function App() {
 
   const seeDefaultFuture = () => {
     if (!selectedPattern) return;
+    const patternId = selectedPattern.pattern_id;
+    if (state.trajectory_projections[patternId]) {
+      setFortuneStages((current) => ({ ...current, [patternId]: "ONE_YEAR" }));
+      return;
+    }
     run(() => api.createProjection(selectedPattern.pattern_id), (result) => {
       setState(result.state);
+      setFortuneStages((current) => ({ ...current, [patternId]: "ONE_YEAR" }));
     });
+  };
+
+  const revealFartherFuture = () => {
+    if (!selectedPattern) return;
+    setFortuneStages((current) => ({
+      ...current,
+      [selectedPattern.pattern_id]: "THREE_YEARS",
+    }));
   };
 
   const chooseAlternative = (alternative: AlternativeResponse) => {
@@ -311,6 +328,8 @@ export default function App() {
             changedOrbit={state.changed_orbits[selectedPattern.pattern_id] ?? null}
             futureChoice={futureChoice?.patternId === selectedPattern.pattern_id ? futureChoice : null}
             onSeeDefaultFuture={seeDefaultFuture}
+            fortuneStage={fortuneStages[selectedPattern.pattern_id] ?? "HIDDEN"}
+            onRevealFartherFuture={revealFartherFuture}
             onChooseAlternative={chooseAlternative}
             onConfirmChangedOrbit={confirmChangedOrbit}
             cosmicEventMode={interactionMode === "COSMIC_EVENT_MODE"}

@@ -714,10 +714,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading__column { width: min(760px, calc(53vw - 58px)); min-width: 560px; margin-left: 47vw; padding: clamp(116px, 14vh, 166px) 0 150px; animation: reading-column-in 720ms 80ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes reading-column-in { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
 .reading-heading { max-width: 720px; }
-.reading-kicker { margin: 0 0 22px; color: rgba(178, 220, 222, 0.76); font-size: 12px; font-weight: 580; letter-spacing: 0.035em; }
+.reading-kicker { margin: 25px 0 0; color: rgba(178, 220, 222, 0.76); font-size: 12px; font-weight: 580; letter-spacing: 0.035em; }
 .reading-heading h2 { margin: 0; color: rgba(247, 249, 248, 0.98); font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; font-size: clamp(43px, 4.25vw, 68px); font-weight: 400; line-height: 1.03; letter-spacing: -0.042em; text-wrap: balance; }
 .reading-hypothesis { max-width: 650px; margin: 30px 0 0; color: rgba(235, 240, 239, 0.9); font-size: 20px; font-weight: 430; line-height: 1.75; }
-.pattern-reading .visual-state-control { width: fit-content; display: flex; gap: 28px; margin: 42px 0 68px; border: 0; }
+.pattern-reading .visual-state-control { width: fit-content; display: flex; gap: 28px; margin: 20px 0 0; border: 0; }
 .pattern-reading .visual-state-control button { padding: 0 0 10px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: rgba(196, 209, 210, 0.54); }
 .pattern-reading .visual-state-control button.is-active { border-bottom-color: rgba(204, 231, 231, 0.72); color: rgba(244, 248, 247, 0.96); }
 .pattern-reading .visual-state-control strong { font-size: 12px; font-weight: 620; }
@@ -726,14 +726,26 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .reading-section h3,
 .principle-section h3 { margin: 0 0 26px; color: rgba(238, 243, 242, 0.9); font-size: 15px; font-weight: 630; letter-spacing: 0; }
 .reading-intro { margin: 0 0 43px; color: rgba(233, 239, 238, 0.9); font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; font-size: 24px; font-style: italic; line-height: 1.52; }
-.pattern-reading .evidence-stack { display: grid; gap: 31px; }
-.pattern-reading .evidence-row { padding: 0 0 0 22px; border: 0; border-left: 1px solid rgba(186, 222, 223, 0.34); }
+.pattern-reading .evidence-stack { display: grid; gap: 5px; }
+.pattern-reading .evidence-row { padding: 0; border: 0; border-bottom: 1px solid rgba(186, 222, 223, 0.12); }
 .pattern-reading .evidence-row + .evidence-row { margin-top: 0; }
-.pattern-reading .evidence-row--contradiction { border-left-color: rgba(231, 139, 157, 0.58); }
+.pattern-reading .evidence-row--contradiction { border-bottom-color: rgba(231, 139, 157, 0.2); }
 .pattern-reading .evidence-meta { color: rgba(177, 195, 196, 0.68); font-size: 11px; letter-spacing: 0.02em; }
 .pattern-reading .evidence-row p { margin: 12px 0 0; color: rgba(242, 245, 244, 0.94); font-size: 19px; font-weight: 420; line-height: 1.72; }
+.pattern-reading .evidence-summary { width: 100%; display: grid; grid-template-columns: 104px minmax(0, 1fr) 20px; align-items: baseline; gap: 18px; padding: 18px 0 20px; border: 0; background: transparent; color: rgba(236, 241, 240, 0.9); text-align: left; }
+.pattern-reading .evidence-summary time { color: rgba(177, 197, 197, 0.68); font-family: "Cascadia Mono", monospace; font-size: 11px; letter-spacing: 0.02em; }
+.pattern-reading .evidence-summary span { overflow: hidden; color: rgba(238, 243, 242, 0.9); font-size: 17px; line-height: 1.58; text-overflow: ellipsis; white-space: nowrap; }
+.pattern-reading .evidence-summary i { color: rgba(180, 214, 214, 0.62); font-family: Georgia, serif; font-size: 21px; font-style: normal; font-weight: 300; transition: color 180ms ease, transform 180ms ease; }
+.pattern-reading .evidence-summary:hover span { color: #fbfcfb; }
+.pattern-reading .evidence-summary:hover i { color: rgba(226, 244, 243, 0.92); transform: scale(1.08); }
+.pattern-reading .evidence-original { padding: 3px 38px 26px 122px; animation: evidence-reveal 430ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pattern-reading .evidence-original p { margin: 0; }
+.pattern-reading .evidence-original small { display: block; margin-top: 17px; color: rgba(169, 188, 188, 0.58); font-family: "Cascadia Mono", monospace; font-size: 10px; line-height: 1.55; }
+@keyframes evidence-reveal { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 .pattern-reading .quiet-copy { color: rgba(202, 215, 215, 0.7); font-size: 17px; line-height: 1.68; }
 .contradiction-reading { margin-top: 72px; }
+.pattern-reading .meaning-section { max-width: 720px; margin-top: 78px; padding-top: 30px; border-top: 1px solid rgba(194, 220, 221, 0.14); }
+.pattern-reading .meaning-section > p { margin: 0; color: rgba(222, 231, 230, 0.84); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; font-style: italic; }
 
 .pattern-reading .orbit-section { max-width: 720px; margin-top: 88px; padding: 0; border: 0; }
 .oracle-action { width: 100%; display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; align-items: center; gap: 27px; padding: 26px 0; border-top: 1px solid rgba(196, 222, 223, 0.17); border-bottom: 1px solid rgba(196, 222, 223, 0.11); background: transparent; color: rgba(239, 244, 243, 0.92); text-align: left; }
@@ -750,6 +762,9 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .oracle-copy small { margin-top: 7px; color: rgba(204, 217, 217, 0.7); font-size: 15px; line-height: 1.5; }
 .oracle-action:hover:not(:disabled) .oracle-orb { transform: translateY(-3px) scale(1.035); border-color: rgba(231, 249, 249, 0.72); box-shadow: inset 11px 8px 22px rgba(235, 254, 254, 0.16), inset -15px -20px 28px rgba(0, 2, 7, 0.88), 0 20px 28px -20px rgba(0, 0, 0, 0.95), 0 0 52px rgba(112, 202, 207, 0.28); }
 .oracle-action:hover:not(:disabled) .oracle-copy strong { color: #fbfdfc; }
+.oracle-action:hover:not(:disabled) .oracle-orb::before { animation-duration: 3.8s; }
+.oracle-action.is-opening .oracle-orb { transform: scale(1.12); border-color: rgba(239, 253, 253, 0.9); box-shadow: inset 11px 8px 22px rgba(235, 254, 254, 0.24), inset -15px -20px 28px rgba(0, 2, 7, 0.82), 0 0 76px rgba(128, 220, 224, 0.5); }
+.oracle-action.is-opening .oracle-orb::before { animation-duration: 1.4s; }
 
 .default-future { animation: future-reading-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes future-reading-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
@@ -761,9 +776,13 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .trajectory-moment > span { color: rgba(185, 204, 204, 0.72); font-size: 11px; font-weight: 610; letter-spacing: 0.04em; }
 .pattern-reading .trajectory-moment p { margin: 12px 0 0; color: rgba(243, 246, 245, 0.95); font-size: 20px; line-height: 1.75; }
 .pattern-reading .orbit-caveat { margin: 35px 0 0; color: rgba(194, 208, 208, 0.72); font-size: 15px; line-height: 1.72; }
-.pattern-reading .trajectory-details { margin-top: 35px; }
-.pattern-reading .trajectory-details summary { width: fit-content; color: rgba(218, 229, 228, 0.82); font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; font-size: 19px; cursor: pointer; }
-.pattern-reading .trajectory-details[open] summary { margin-bottom: 29px; color: rgba(246, 249, 248, 0.96); }
+.pattern-reading .farther-orbit-action { width: 100%; display: flex; align-items: center; justify-content: space-between; margin-top: 36px; padding: 20px 0; border-top: 1px solid rgba(194, 220, 221, 0.18); border-bottom: 1px solid rgba(194, 220, 221, 0.1); background: transparent; color: rgba(228, 237, 236, 0.88); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; text-align: left; }
+.pattern-reading .farther-orbit-action:hover { color: #fbfdfc; }
+.pattern-reading .farther-orbit-action svg { transition: transform 220ms ease; }
+.pattern-reading .farther-orbit-action:hover svg { transform: translateX(5px); }
+.pattern-reading .trajectory-details { margin-top: 46px; animation: farther-reveal 560ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pattern-reading .trajectory-details h4 { margin: 0 0 22px; color: rgba(187, 211, 211, 0.7); font-size: 11px; font-weight: 620; letter-spacing: 0.045em; text-transform: uppercase; }
+@keyframes farther-reveal { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .pattern-reading .compounding-copy { margin: 25px 0 0 23px; color: rgba(217, 226, 225, 0.82); font-size: 17px; line-height: 1.72; }
 .pattern-reading .change-orbit-action { width: 100%; margin-top: 48px; padding: 22px 0; border-top: 1px solid rgba(229, 198, 114, 0.24); border-bottom: 1px solid rgba(229, 198, 114, 0.12); color: rgba(247, 227, 171, 0.94); font-size: 16px; }
 .pattern-reading .alternative-responses { margin-top: 43px; }
@@ -809,6 +828,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   .pattern-reading .changed-orbit-result p { font-size: 18px; }
   .pattern-reading .changed-orbit-result dl { grid-template-columns: 1fr; }
   .pattern-reading .visual-state-control { gap: 20px; }
+  .pattern-reading .evidence-summary { grid-template-columns: 88px minmax(0, 1fr) 18px; gap: 12px; }
+  .pattern-reading .evidence-original { padding-left: 100px; }
   .oracle-action { grid-template-columns: 60px 1fr; gap: 17px; }
   .oracle-action > .spin { display: none; }
 }

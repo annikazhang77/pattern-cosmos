@@ -85,6 +85,7 @@ export interface ChangedOrbit {
 }
 
 export type InteractionMode = "READ_MODE" | "COSMIC_EVENT_MODE";
+export type FortuneStage = "HIDDEN" | "ONE_YEAR" | "THREE_YEARS";
 
 export interface CosmicEventState {
   kind: "BLACK_HOLE" | "CHANGE_ORBIT";

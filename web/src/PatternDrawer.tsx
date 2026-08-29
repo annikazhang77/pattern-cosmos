@@ -5,6 +5,7 @@ import type {
   ChangedOrbit,
   DefaultFutureProjection,
   Experience,
+  FortuneStage,
   FutureChoicePosition,
   Pattern,
   VisualState,
@@ -25,6 +26,8 @@ interface PatternDrawerProps {
     position: FutureChoicePosition;
   } | null;
   onSeeDefaultFuture: () => void;
+  fortuneStage: FortuneStage;
+  onRevealFartherFuture: () => void;
   onChooseAlternative: (alternative: AlternativeResponse) => void;
   onConfirmChangedOrbit: () => void;
   cosmicEventMode: boolean;
@@ -35,6 +38,47 @@ const visualOptions: Array<{ value: VisualState; label: string; hint: string }> 
   { value: "constellation", label: "Constellation", hint: "Reinforce" },
   { value: "black_hole", label: "Black Hole", hint: "Interrupt" },
 ];
+
+function condensedEvidence(text: string) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const sentence = clean.match(/^.*?[.!?。！？](?:\s|$)/)?.[0]?.trim() ?? clean;
+  return sentence.length > 118 ? `${sentence.slice(0, 115).trimEnd()}…` : sentence;
+}
+
+function EvidenceDisclosure({
+  experience,
+  contradiction = false,
+}: {
+  experience: Experience;
+  contradiction?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const original = experience.original_text ?? experience.text;
+  return (
+    <article className={`evidence-row${contradiction ? " evidence-row--contradiction" : ""}`}>
+      <button
+        className="evidence-summary"
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <time>{experience.date}</time>
+        <span>{condensedEvidence(experience.text)}</span>
+        <i aria-hidden="true">{expanded ? "−" : "+"}</i>
+      </button>
+      {expanded && (
+        <div className="evidence-original">
+          <p>{original}</p>
+          <small>
+            Source · {experience.source_file ?? "Imported experience"}
+            {experience.source_line ? ` · line ${experience.source_line}` : ""}
+            {` · ${experience.source_id ?? experience.experience_id}`}
+          </small>
+        </div>
+      )}
+    </article>
+  );
+}
 
 export function PatternDrawer({
   pattern,
@@ -47,6 +91,8 @@ export function PatternDrawer({
   changedOrbit,
   futureChoice,
   onSeeDefaultFuture,
+  fortuneStage,
+  onRevealFartherFuture,
   onChooseAlternative,
   onConfirmChangedOrbit,
   cosmicEventMode,
@@ -93,39 +139,16 @@ export function PatternDrawer({
 
       <div className="pattern-reading__column" onMouseDown={(event) => event.stopPropagation()}>
         <header className="reading-heading">
-          <p className="reading-kicker">Seen in {pattern.evidence_count} supporting moments</p>
           <h2>{pattern.name}</h2>
           <p className="reading-hypothesis">{pattern.hypothesis}</p>
+          <p className="reading-kicker">Seen in {pattern.evidence_count} supporting moments</p>
         </header>
-
-        <nav className="visual-state-control" aria-label="Pattern visual state">
-          {visualOptions.map((option) => (
-            <button
-              key={option.value}
-              className={pattern.visual_state === option.value ? "is-active" : ""}
-              onClick={() => onSetVisualState(option.value)}
-              disabled={busy}
-              aria-label={`${option.label} ${option.hint}`}
-            >
-              <strong>{option.label}</strong>
-              <span>{option.hint}</span>
-            </button>
-          ))}
-        </nav>
 
         <section className="reading-section evidence-reading">
           <p className="reading-intro">Here are the moments that formed this pattern.</p>
           <h3>Supporting evidence</h3>
           <div className="evidence-stack">
-            {evidence.map((experience) => (
-              <article className="evidence-row" key={experience.experience_id}>
-                <div className="evidence-meta">
-                  <time>{experience.date}</time>
-                  <span title={experience.source_file}>{experience.source_id ?? experience.experience_id}</span>
-                </div>
-                <p>{experience.text}</p>
-              </article>
-            ))}
+            {evidence.map((experience) => <EvidenceDisclosure key={experience.experience_id} experience={experience} />)}
           </div>
         </section>
 
@@ -134,13 +157,7 @@ export function PatternDrawer({
           {contradictions.length > 0 ? (
             <div className="evidence-stack">
               {contradictions.map((experience) => (
-                <article className="evidence-row evidence-row--contradiction" key={experience.experience_id}>
-                  <div className="evidence-meta">
-                    <time>{experience.date}</time>
-                    <span>{experience.source_id ?? experience.experience_id}</span>
-                  </div>
-                  <p>{experience.text}</p>
-                </article>
+                <EvidenceDisclosure key={experience.experience_id} experience={experience} contradiction />
               ))}
             </div>
           ) : (
@@ -148,11 +165,32 @@ export function PatternDrawer({
           )}
         </section>
 
+        <section className="meaning-section" aria-labelledby="meaning-heading">
+          <p id="meaning-heading">Choose what this pattern means now.</p>
+          <nav className="visual-state-control" aria-label="Pattern visual state">
+            {visualOptions.map((option) => (
+              <button
+                key={option.value}
+                className={pattern.visual_state === option.value ? "is-active" : ""}
+                onClick={() => onSetVisualState(option.value)}
+                disabled={busy}
+                aria-label={`${option.label} ${option.hint}`}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.hint}</span>
+              </button>
+            ))}
+          </nav>
+        </section>
+
         <section className="orbit-section">
-          {!projection ? (
+          {fortuneStage === "HIDDEN" ? (
             <button
               className="oracle-action"
-              onClick={onSeeDefaultFuture}
+              onClick={(event) => {
+                event.currentTarget.classList.add("is-opening");
+                onSeeDefaultFuture();
+              }}
               disabled={busy || pattern.evidence_count < 3}
             >
               <span className="oracle-orb" aria-hidden="true">
@@ -165,10 +203,10 @@ export function PatternDrawer({
               </span>
               {busy && <CircleNotch className="spin" size={19} />}
             </button>
-          ) : (
+          ) : projection ? (
             <div className="default-future">
               <header className="future-heading">
-                <span>Default Future</span>
+                <span>Default Future · One Year</span>
                 <small>{projection.evidence_ids.length} cited moments</small>
                 <h3>If this pattern continues...</h3>
               </header>
@@ -180,16 +218,25 @@ export function PatternDrawer({
 
               <p className="orbit-caveat">{projection.uncertainty_evidence_caveat}</p>
 
-              <details className="trajectory-details">
-                <summary>Look farther along this orbit</summary>
+              {fortuneStage === "ONE_YEAR" && (
+                <button className="farther-orbit-action" type="button" onClick={onRevealFartherFuture}>
+                  <span>Look farther along this orbit</span>
+                  <ArrowRight size={17} />
+                </button>
+              )}
+
+              {fortuneStage === "THREE_YEARS" && (
+                <div className="trajectory-details is-revealed">
+                  <h4>Farther along this orbit</h4>
                 <div className="trajectory-moment">
                   <span>Three years</span>
                   <p>{projection.three_year_default_trajectory}</p>
                 </div>
                 <p className="compounding-copy">{projection.likely_compounding_effect}</p>
-              </details>
+                </div>
+              )}
 
-              {!showAlternatives && !changedOrbit && (
+              {fortuneStage === "THREE_YEARS" && !showAlternatives && !changedOrbit && (
                 <button className="change-orbit-action" onClick={() => setShowAlternatives(true)}>
                   <Sparkle size={17} weight="fill" />
                   <span>{orbitAction}</span>
@@ -253,7 +300,7 @@ export function PatternDrawer({
                 </div>
               )}
             </div>
-          )}
+          ) : null}
         </section>
 
         <section className="principle-section">

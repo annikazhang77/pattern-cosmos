@@ -1162,6 +1162,7 @@ function HybridPhotographicLayer({
   selected,
   dimmed,
   collapsed,
+  constellation,
   spec,
 }: {
   texture: THREE.Texture;
@@ -1169,6 +1170,7 @@ function HybridPhotographicLayer({
   selected: boolean;
   dimmed: boolean;
   collapsed: boolean;
+  constellation: boolean;
   spec: HybridLayerSpec;
 }) {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -1182,7 +1184,7 @@ function HybridPhotographicLayer({
     uLayer: { value: spec.layer },
     uOpacity: { value: spec.opacity },
     uSelected: { value: selected ? 1 : 0 },
-    uVisibility: { value: dimmed ? 0.12 : 1 },
+    uVisibility: { value: dimmed ? 0.12 : constellation ? 0.72 : 1 },
     uCollapse: { value: collapsed ? 1 : 0 },
     uUvOffset: { value: new THREE.Vector2(...spec.uvOffset) },
     uUvScale: { value: new THREE.Vector2(...spec.uvScale) },
@@ -1199,7 +1201,7 @@ function HybridPhotographicLayer({
     );
     materialRef.current.uniforms.uVisibility.value = THREE.MathUtils.damp(
       materialRef.current.uniforms.uVisibility.value,
-      dimmed ? 0.12 : 1,
+      dimmed ? 0.12 : constellation ? 0.72 : 1,
       4,
       delta,
     );
@@ -1243,11 +1245,13 @@ function HybridPhotographicNebula({
   selected,
   dimmed,
   collapsed,
+  constellation,
 }: {
   colors: [string, string, string];
   selected: boolean;
   dimmed: boolean;
   collapsed: boolean;
+  constellation: boolean;
 }) {
   const texture = useTexture("/assets/nasa-lagoon-nebula-pia14728.jpg");
 
@@ -1269,6 +1273,7 @@ function HybridPhotographicNebula({
           selected={selected}
           dimmed={dimmed}
           collapsed={collapsed}
+          constellation={constellation}
           spec={spec}
         />
       ))}
@@ -1718,6 +1723,135 @@ function ExperienceStars({
             </Html>
           )}
         </group>
+      ))}
+    </group>
+  );
+}
+
+function ConstellationStar({
+  position,
+  index,
+  glowTexture,
+}: {
+  position: THREE.Vector3;
+  index: number;
+  glowTexture: THREE.Texture | null;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const materialRef = useRef<THREE.MeshBasicMaterial>(null);
+  const spriteRef = useRef<THREE.SpriteMaterial>(null);
+  const startedAt = useRef<number | null>(null);
+  useFrame((state) => {
+    if (startedAt.current === null) startedAt.current = state.clock.elapsedTime;
+    const elapsed = state.clock.elapsedTime - startedAt.current - index * 0.16;
+    const progress = THREE.MathUtils.smoothstep(elapsed, 0, 0.58);
+    if (groupRef.current) groupRef.current.scale.setScalar(Math.max(0.001, progress));
+    if (materialRef.current) materialRef.current.opacity = 0.12 + progress * 0.88;
+    if (spriteRef.current) spriteRef.current.opacity = progress * 0.58;
+  });
+  return (
+    <group ref={groupRef} position={position} scale={0.001}>
+      <mesh>
+        <sphereGeometry args={[0.045, 12, 12]} />
+        <meshBasicMaterial ref={materialRef} color="#f7fbf7" transparent opacity={0} toneMapped={false} />
+      </mesh>
+      <sprite scale={[0.42, 0.42, 1]}>
+        <spriteMaterial
+          ref={spriteRef}
+          map={glowTexture}
+          color="#bfeee9"
+          transparent
+          opacity={0}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </sprite>
+    </group>
+  );
+}
+
+function ConstellationSegment({
+  from,
+  to,
+  index,
+}: {
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  index: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const startedAt = useRef<number | null>(null);
+  const { length, quaternion } = useMemo(() => {
+    const direction = to.clone().sub(from);
+    return {
+      length: direction.length(),
+      quaternion: new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        direction.normalize(),
+      ),
+    };
+  }, [from, to]);
+  useFrame((state) => {
+    if (startedAt.current === null) startedAt.current = state.clock.elapsedTime;
+    const elapsed = state.clock.elapsedTime - startedAt.current - 0.28 - index * 0.22;
+    const progress = THREE.MathUtils.smootherstep(elapsed, 0, 0.72);
+    if (groupRef.current) groupRef.current.scale.y = Math.max(0.001, progress);
+  });
+  return (
+    <group ref={groupRef} position={from} quaternion={quaternion} scale={[1, 0.001, 1]}>
+      <mesh position={[0, length / 2, 0]}>
+        <cylinderGeometry args={[0.006, 0.006, length, 6, 1, true]} />
+        <meshBasicMaterial
+          color="#b7e5e1"
+          transparent
+          opacity={0.52}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+      <mesh position={[0, length / 2, 0]}>
+        <cylinderGeometry args={[0.018, 0.018, length, 6, 1, true]} />
+        <meshBasicMaterial
+          color="#75bfc5"
+          transparent
+          opacity={0.08}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+function ConstellationStructure({
+  pattern,
+  volumetric,
+  dimmed,
+}: {
+  pattern: Pattern;
+  volumetric: boolean;
+  dimmed: boolean;
+}) {
+  const glowTexture = useRadialGlowTexture();
+  const stars = useMemo(
+    () => createExperiencePositions(pattern, volumetric).filter((star) => !star.contradiction),
+    [pattern, volumetric],
+  );
+  if (dimmed || stars.length === 0) return null;
+  return (
+    <group>
+      {stars.slice(0, -1).map((star, index) => (
+        <ConstellationSegment
+          key={`${star.id}-${stars[index + 1].id}`}
+          from={star.position}
+          to={stars[index + 1].position}
+          index={index}
+        />
+      ))}
+      {stars.map((star, index) => (
+        <ConstellationStar key={star.id} position={star.position} index={index} glowTexture={glowTexture} />
       ))}
     </group>
   );
@@ -2173,6 +2307,7 @@ function PatternNebula({
           selected={selected || hovered}
           dimmed={dimmed}
           collapsed={pattern.visual_state === "black_hole"}
+          constellation={pattern.visual_state === "constellation"}
         />
       ) : (
         <>
@@ -2239,6 +2374,14 @@ function PatternNebula({
         collapsed={pattern.visual_state === "black_hole"}
         onSelect={onSelect}
       />
+
+      {pattern.visual_state === "constellation" && (
+        <ConstellationStructure
+          pattern={pattern}
+          volumetric={usesPhotographicHybrid || usesPhotographicDepth}
+          dimmed={dimmed}
+        />
+      )}
 
       <CollapseCore active={pattern.visual_state === "black_hole" && !dimmed} />
 
@@ -2417,9 +2560,8 @@ function Scene({
             const isSelected = selectedPatternId === pattern.pattern_id;
             const eventForPattern = cosmicEvent?.patternId === pattern.pattern_id ? cosmicEvent : null;
             let trajectoryMode: TrajectoryMode = "hidden";
-            if (isSelected && projections[pattern.pattern_id]) {
-              trajectoryMode = changedOrbits[pattern.pattern_id] ? "changed" : "current";
-            }
+            if (changedOrbits[pattern.pattern_id]) trajectoryMode = "changed";
+            else if (isSelected && projections[pattern.pattern_id]) trajectoryMode = "current";
             if (eventForPattern?.kind === "BLACK_HOLE") trajectoryMode = "hidden";
             if (eventForPattern?.kind === "CHANGE_ORBIT") {
               trajectoryMode = eventForPattern.phase === "PREFRAME"
