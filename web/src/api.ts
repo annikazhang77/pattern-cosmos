@@ -1,11 +1,16 @@
-import type { AppState, RoutingResult, VisualState } from "./types";
+import type {
+  AppState,
+  ChangedOrbit,
+  DefaultFutureProjection,
+  FutureChoicePosition,
+  RoutingResult,
+  VisualState,
+} from "./types";
 
 const sessionKey = "pattern-cosmos-anonymous-session";
-let sessionId = window.localStorage.getItem(sessionKey);
-if (!sessionId) {
-  sessionId = `cosmos-${crypto.randomUUID().replaceAll("-", "")}`;
-  window.localStorage.setItem(sessionKey, sessionId);
-}
+const storedSessionId = window.localStorage.getItem(sessionKey);
+const sessionId = storedSessionId ?? `cosmos-${crypto.randomUUID().replaceAll("-", "")}`;
+if (!storedSessionId) window.localStorage.setItem(sessionKey, sessionId);
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
@@ -49,4 +54,23 @@ export const api = {
     request<{ state: AppState }>(`/api/patterns/${patternId}/principle`, {
       method: "POST",
     }),
+  createProjection: (patternId: string) =>
+    request<{ projection: DefaultFutureProjection; state: AppState; cached: boolean }>(
+      `/api/patterns/${patternId}/projection`,
+      { method: "POST" },
+    ),
+  confirmChangedOrbit: (
+    patternId: string,
+    alternativeId: string,
+    futureChoicePosition: FutureChoicePosition,
+  ) => request<{ changed_orbit: ChangedOrbit; state: AppState }>(
+    `/api/patterns/${patternId}/changed-orbit`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        alternative_id: alternativeId,
+        future_choice_position: futureChoicePosition,
+      }),
+    },
+  ),
 };

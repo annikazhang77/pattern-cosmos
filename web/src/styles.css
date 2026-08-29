@@ -139,7 +139,16 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 }
 .nebula-label.is-hovered,
 .nebula-label.is-selected { transform: translateY(0); opacity: 1; }
-.nebula-label.is-selected span { color: rgba(191, 239, 243, 0.82); }
+.nebula-label.is-selected { opacity: 0; }
+.future-choice-label {
+  width: 124px;
+  color: rgba(246, 229, 180, 0.82);
+  font-family: "Cascadia Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 2px 16px #02050a, 0 0 22px #02050a;
+}
 .cosmos-guidance { display: none; }
 
 .cosmos-empty {
@@ -253,6 +262,122 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .evidence-meta { display: flex; justify-content: space-between; gap: 12px; color: rgba(157, 176, 180, 0.72); font-family: "Cascadia Mono", monospace; font-size: 9px; }
 .evidence-row p { margin: 9px 0 0; color: rgba(225, 234, 235, 0.9); font-size: 12px; line-height: 1.72; }
 .quiet-copy { margin: 0; color: rgba(164, 181, 184, 0.72); font-size: 11px; line-height: 1.65; }
+.orbit-section { margin-top: 38px; padding-top: 24px; border-top: 1px solid var(--line); }
+.crystal-ball-action {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 15px;
+  padding: 5px 0 6px;
+  background: transparent;
+  color: rgba(232, 241, 242, 0.9);
+  text-align: left;
+}
+.crystal-ball-action > svg { color: rgba(191, 239, 243, 0.58); transition: color 220ms ease, transform 220ms ease; }
+.crystal-ball-action:hover:not(:disabled) > svg { color: rgba(229, 248, 247, 0.96); transform: translateX(2px); }
+.crystal-ball-action strong,
+.crystal-ball-action small { display: block; }
+.crystal-ball-action strong { font-size: 12px; font-weight: 590; letter-spacing: -0.01em; }
+.crystal-ball-action small { margin-top: 6px; color: rgba(161, 181, 185, 0.68); font-size: 10px; line-height: 1.55; }
+.crystal-ball {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: block;
+  border: 1px solid rgba(183, 226, 232, 0.2);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 39% 31%, rgba(236, 251, 250, 0.72) 0 2%, transparent 5%),
+    radial-gradient(circle at 36% 35%, rgba(74, 187, 201, 0.34), transparent 31%),
+    radial-gradient(circle at 64% 67%, rgba(120, 79, 143, 0.28), transparent 43%),
+    rgba(5, 14, 21, 0.74);
+  box-shadow: inset -7px -9px 18px rgba(0, 2, 7, 0.72), 0 0 26px rgba(87, 170, 181, 0.1);
+  transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+}
+.crystal-ball::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -5px;
+  height: 5px;
+  border-top: 1px solid rgba(184, 216, 219, 0.22);
+  border-radius: 50%;
+  background: rgba(8, 13, 19, 0.84);
+}
+.crystal-ball span {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 65%, rgba(203, 238, 236, 0.1), transparent 58%);
+  transform: rotate(-18deg);
+}
+.crystal-ball-action:hover:not(:disabled) .crystal-ball {
+  border-color: rgba(195, 240, 241, 0.38);
+  box-shadow: inset -7px -9px 18px rgba(0, 2, 7, 0.72), 0 0 32px rgba(100, 198, 205, 0.18);
+  transform: translateY(-1px);
+}
+.orbit-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.orbit-heading > span { color: rgba(191, 239, 243, 0.76); font-family: "Cascadia Mono", monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
+.orbit-heading small { color: rgba(142, 161, 166, 0.56); font-size: 8px; }
+.orbit-condition { margin: 17px 0 18px; color: rgba(240, 246, 246, 0.94); font-family: Georgia, "Times New Roman", serif; font-size: 17px; font-style: italic; line-height: 1.45; }
+.trajectory-moment { padding-left: 16px; border-left: 1px solid rgba(191, 239, 243, 0.28); }
+.trajectory-moment > span { color: rgba(161, 184, 188, 0.68); font-family: "Cascadia Mono", monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.trajectory-moment p { margin: 7px 0 0; color: rgba(225, 235, 236, 0.9); font-size: 12px; line-height: 1.72; }
+.trajectory-details { margin-top: 16px; }
+.trajectory-details summary { color: rgba(184, 205, 208, 0.72); font-size: 10px; cursor: pointer; list-style-position: outside; }
+.trajectory-details[open] summary { margin-bottom: 15px; color: rgba(229, 239, 240, 0.9); }
+.compounding-copy { margin: 15px 0 0 17px; color: rgba(190, 206, 209, 0.78); font-size: 11px; line-height: 1.68; }
+.orbit-caveat { margin: 18px 0 0; color: rgba(143, 164, 168, 0.66); font-size: 9px; line-height: 1.62; }
+.change-orbit-action {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 25px;
+  padding: 15px 0;
+  border-top: 1px solid rgba(222, 193, 120, 0.18);
+  border-bottom: 1px solid rgba(222, 193, 120, 0.1);
+  background: transparent;
+  color: rgba(242, 225, 177, 0.84);
+  font-size: 11px;
+  text-align: left;
+}
+.change-orbit-action svg:first-child { color: #e6c566; }
+.change-orbit-action svg:last-child { color: rgba(235, 219, 177, 0.52); transition: transform 180ms ease; }
+.change-orbit-action:hover svg:last-child { transform: translateX(3px); }
+.alternative-responses { margin-top: 25px; }
+.alternative-responses > p { margin: 0 0 13px; color: rgba(177, 196, 199, 0.72); font-size: 10px; line-height: 1.55; }
+.alternative-responses > button {
+  width: 100%;
+  display: block;
+  padding: 13px 0 13px 16px;
+  border-left: 1px solid rgba(198, 219, 221, 0.18);
+  background: transparent;
+  color: rgba(210, 222, 224, 0.76);
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: left;
+  transition: border-color 180ms ease, color 180ms ease, padding-left 180ms ease;
+}
+.alternative-responses > button + button { margin-top: 3px; }
+.alternative-responses > button:hover,
+.alternative-responses > button.is-active { padding-left: 20px; border-left-color: rgba(229, 197, 103, 0.72); color: rgba(246, 238, 211, 0.96); }
+.future-choice-confirm { margin-top: 18px; padding: 16px 0 3px; border-top: 1px solid rgba(222, 193, 120, 0.16); }
+.future-choice-confirm > p { margin: 0 0 13px; color: rgba(188, 199, 196, 0.72); font-size: 9px; line-height: 1.58; }
+.future-choice-confirm > button { display: inline-flex; align-items: center; gap: 8px; padding: 9px 0; background: transparent; color: rgba(244, 226, 174, 0.92); font-size: 10px; }
+.changed-orbit-result { margin-top: 25px; }
+.changed-orbit-result > div:not(:last-child) { padding-left: 16px; border-left: 1px solid rgba(201, 218, 220, 0.2); }
+.changed-orbit-result > div:nth-of-type(2) { border-left-color: rgba(229, 197, 103, 0.64); }
+.changed-orbit-result > svg { display: block; margin: 10px 0 10px 15px; color: rgba(229, 197, 103, 0.58); transform: rotate(90deg); }
+.changed-orbit-result span { color: rgba(164, 181, 184, 0.62); font-family: "Cascadia Mono", monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.changed-orbit-result p { margin: 7px 0 0; color: rgba(230, 237, 237, 0.9); font-size: 11px; line-height: 1.64; }
+.changed-orbit-result dl { margin: 23px 0 0; }
+.changed-orbit-result dl > div { padding: 11px 0; border-top: 1px solid rgba(205, 221, 223, 0.1); }
+.changed-orbit-result dt { color: rgba(182, 199, 202, 0.62); font-size: 9px; }
+.changed-orbit-result dd { margin: 5px 0 0; color: rgba(218, 228, 229, 0.84); font-size: 10px; line-height: 1.62; }
 .principle-section { margin-top: 34px; padding-top: 20px; border-top: 1px solid var(--line); }
 .principle-section > div p { margin: -5px 0 17px; color: rgba(164, 181, 184, 0.72); font-size: 11px; line-height: 1.6; }
 .principle-section blockquote { margin: 0; color: rgba(232, 240, 240, 0.92); font-size: 13px; line-height: 1.72; }
@@ -475,6 +600,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
     background: linear-gradient(180deg, rgba(3, 6, 11, 0), rgba(4, 8, 14, 0.94) 14%, rgba(4, 8, 14, 0.99) 34%);
   }
   .drawer-close { top: 45px; right: 17px; }
+  .orbit-condition { font-size: 16px; }
   .experience-composer,
   .workspace.has-selection ~ .experience-composer {
     left: 12px;

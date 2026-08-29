@@ -4,6 +4,7 @@ from google.adk.agents import Agent
 from google.adk.models import Gemini
 from google.genai import types
 
+from pattern_agent.projection import DefaultFutureProjection
 from pattern_agent.state import PatternState
 
 
@@ -90,4 +91,24 @@ def build_agent(model_id: str) -> Agent:
             route_new_experience,
             propose_merge,
         ],
+    )
+
+
+def build_projection_agent(model_id: str) -> Agent:
+    """Create an evidence-grounded scenario projector without mutating pattern state."""
+    return Agent(
+        name="OrbitProjector",
+        model=Gemini(
+            model=model_id,
+            retry_options=types.HttpRetryOptions(attempts=2),
+        ),
+        instruction=(
+            "You are OrbitProjector, an evidence-constrained scenario planner. "
+            "Project only the default trajectory implied by supplied repeated behavior. "
+            "Use conditional language, preserve uncertainty and contradictions, and never "
+            "diagnose or invent unsupported life events. Offer two or three small alternative "
+            "responses that change the response path without rewriting the user's circumstances."
+        ),
+        output_schema=DefaultFutureProjection,
+        mode="task",
     )

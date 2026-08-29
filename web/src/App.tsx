@@ -5,7 +5,12 @@ import { api } from "./api";
 import { EntryIntro } from "./EntryIntro";
 import { PatternDrawer } from "./PatternDrawer";
 import { ThreeCosmosView } from "./ThreeCosmosView";
-import type { AppState, VisualState } from "./types";
+import type {
+  AlternativeResponse,
+  AppState,
+  FutureChoicePosition,
+  VisualState,
+} from "./types";
 
 const emptyState: AppState = {
   loaded: false,
@@ -15,14 +20,24 @@ const emptyState: AppState = {
   last_routing: null,
   agent_call_count: 0,
   model: "gemini-3.7-flash",
+  trajectory_projections: {},
+  changed_orbits: {},
   last_import: null,
 };
+
+interface FutureChoiceDraft {
+  patternId: string;
+  alternativeId: string;
+  position: FutureChoicePosition;
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>(emptyState);
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [futureChoice, setFutureChoice] = useState<FutureChoiceDraft | null>(null);
+  const [escapeAnimationId, setEscapeAnimationId] = useState(0);
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
@@ -98,6 +113,42 @@ export default function App() {
     run(() => api.setVisualState(selectedPattern.pattern_id, visualState), setState);
   };
 
+  const seeDefaultFuture = () => {
+    if (!selectedPattern) return;
+    run(() => api.createProjection(selectedPattern.pattern_id), (result) => {
+      setState(result.state);
+    });
+  };
+
+  const chooseAlternative = (alternative: AlternativeResponse) => {
+    if (!selectedPattern) return;
+    setFutureChoice({
+      patternId: selectedPattern.pattern_id,
+      alternativeId: alternative.alternative_id,
+      position: { x: 2.9, y: 1.05, z: 0.72 },
+    });
+  };
+
+  const moveFutureChoice = (position: FutureChoicePosition) => {
+    setFutureChoice((current) => current ? { ...current, position } : current);
+  };
+
+  const confirmChangedOrbit = () => {
+    if (!selectedPattern || !futureChoice || futureChoice.patternId !== selectedPattern.pattern_id) return;
+    run(
+      () => api.confirmChangedOrbit(
+        selectedPattern.pattern_id,
+        futureChoice.alternativeId,
+        futureChoice.position,
+      ),
+      (result) => {
+        setState(result.state);
+        setEscapeAnimationId((value) => value + 1);
+        setFutureChoice(null);
+      },
+    );
+  };
+
   const createPrinciple = () => {
     if (!selectedPattern) return;
     run(() => api.createPrinciple(selectedPattern.pattern_id), (result) => setState(result.state));
@@ -144,9 +195,12 @@ export default function App() {
           {state.loaded ? (
             <ThreeCosmosView
               patterns={state.patterns}
-              experiences={state.experiences}
               selectedPatternId={selectedPatternId}
               onSelectPattern={setSelectedPatternId}
+              futureChoice={futureChoice}
+              changedOrbits={state.changed_orbits}
+              escapeAnimationId={escapeAnimationId}
+              onMoveFutureChoice={moveFutureChoice}
             />
           ) : (
             <div className="cosmos-empty">
@@ -178,6 +232,12 @@ export default function App() {
             onClose={() => setSelectedPatternId(null)}
             onSetVisualState={setVisualState}
             onCreatePrinciple={createPrinciple}
+            projection={state.trajectory_projections[selectedPattern.pattern_id] ?? null}
+            changedOrbit={state.changed_orbits[selectedPattern.pattern_id] ?? null}
+            futureChoice={futureChoice?.patternId === selectedPattern.pattern_id ? futureChoice : null}
+            onSeeDefaultFuture={seeDefaultFuture}
+            onChooseAlternative={chooseAlternative}
+            onConfirmChangedOrbit={confirmChangedOrbit}
           />
         )}
       </section>

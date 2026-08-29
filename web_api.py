@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +16,10 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from pattern_agent.agent import build_agent, configure_tools
+from pattern_agent.agent import build_agent, build_projection_agent, configure_tools
 from pattern_agent.firestore_store import FirestoreStateStore
 from pattern_agent.importer import parse_dated_text
+from pattern_agent.projection import ChangedOrbitInput, DefaultFutureProjection
 from pattern_agent.state import PatternState
 
 
@@ -52,6 +54,8 @@ class SessionState:
         self.last_routing: dict[str, Any] | None = None
         self.agent_call_count = 0
         self.last_import: dict[str, Any] | None = None
+        self.trajectory_projections: dict[str, dict[str, Any]] = {}
+        self.changed_orbits: dict[str, dict[str, Any]] = {}
 
     def require_state(self) -> PatternState:
         if not self.loaded or self.state is None:
@@ -85,6 +89,8 @@ class SessionState:
             "last_routing": self.last_routing,
             "agent_call_count": self.agent_call_count,
             "last_import": self.last_import,
+            "trajectory_projections": self.trajectory_projections,
+            "changed_orbits": self.changed_orbits,
         }
 
     @classmethod
@@ -97,6 +103,8 @@ class SessionState:
         session.last_routing = payload.get("last_routing")
         session.agent_call_count = int(payload.get("agent_call_count", 0))
         session.last_import = payload.get("last_import")
+        session.trajectory_projections = dict(payload.get("trajectory_projections", {}))
+        session.changed_orbits = dict(payload.get("changed_orbits", {}))
         return session
 
     def payload(self) -> dict[str, Any]:
@@ -109,6 +117,8 @@ class SessionState:
                 "last_routing": None,
                 "agent_call_count": 0,
                 "last_import": self.last_import,
+                "trajectory_projections": self.trajectory_projections,
+                "changed_orbits": self.changed_orbits,
                 "model": MODEL_ID,
                 "persistence": "firestore" if USE_FIRESTORE else "local-json",
             }
@@ -121,6 +131,8 @@ class SessionState:
             "last_routing": self.last_routing,
             "agent_call_count": self.agent_call_count,
             "last_import": self.last_import,
+            "trajectory_projections": self.trajectory_projections,
+            "changed_orbits": self.changed_orbits,
             "model": MODEL_ID,
             "persistence": "firestore" if USE_FIRESTORE else "local-json",
         }
@@ -255,6 +267,89 @@ async def invoke_pattern_discovery(
             raise RuntimeError("PatternCurator exceeded the bulk-discovery call budget")
     discovered = [pattern for pattern in state.patterns() if pattern["pattern_id"] not in before_ids]
     return discovered, model_calls
+
+
+def projection_prompt(
+    pattern: dict[str, Any],
+    supporting: list[dict[str, str]],
+    contradictions: list[dict[str, str]],
+) -> str:
+    return f"""
+Project the current trajectory of one recurring behavioral pattern using only the supplied evidence.
+
+This is not fortune telling and not a deterministic prediction. Describe a scenario that begins with
+the exact conditional phrase "If this pattern continues". Ground every claim in the repeated trigger,
+response, and observed outcome. Preserve uncertainty and counter-evidence. Never diagnose personality.
+Never predict a specific job, partner, illness, income, or other event unsupported by evidence.
+
+Return 2 or 3 small alternative responses. Each alternative must change the response at the same
+trigger while keeping the user's underlying situation and constraints recognizable. Make each option
+concrete enough to try once. Use only supplied experience IDs in evidence_ids.
+
+Pattern:
+{json.dumps(pattern, indent=2, ensure_ascii=False)}
+
+Supporting evidence:
+{json.dumps(supporting, indent=2, ensure_ascii=False)}
+
+Contradictions and counter-evidence:
+{json.dumps(contradictions, indent=2, ensure_ascii=False)}
+""".strip()
+
+
+async def invoke_orbit_projector(
+    pattern: dict[str, Any],
+    supporting: list[dict[str, str]],
+    contradictions: list[dict[str, str]],
+) -> tuple[dict[str, Any], int]:
+    agent = build_projection_agent(MODEL_ID)
+    session_service = InMemorySessionService()
+    adk_session_id = f"project-{pattern['pattern_id'].replace('pattern-', '')[:40]}"
+    await session_service.create_session(
+        app_name="pattern_cosmos_orbit", user_id="anonymous-demo-user", session_id=adk_session_id
+    )
+    runner = Runner(agent=agent, app_name="pattern_cosmos_orbit", session_service=session_service)
+    content = types.Content(
+        role="user",
+        parts=[types.Part(text=projection_prompt(pattern, supporting, contradictions))],
+    )
+    model_calls = 0
+    response_text = ""
+    structured_output: Any | None = None
+    async for event in runner.run_async(
+        user_id="anonymous-demo-user", session_id=adk_session_id, new_message=content
+    ):
+        event_content = getattr(event, "content", None)
+        if bool(getattr(event, "partial", False)):
+            continue
+        if getattr(event_content, "role", None) == "model":
+            model_calls += 1
+        if getattr(event, "output", None) is not None:
+            structured_output = event.output
+        if event_content is None:
+            continue
+        text_parts = [
+            getattr(part, "text", "")
+            for part in getattr(event_content, "parts", [])
+            if getattr(part, "text", None)
+        ]
+        if text_parts:
+            response_text = "".join(text_parts)
+        if model_calls > 3:
+            raise RuntimeError("OrbitProjector exceeded the projection call budget")
+    if structured_output is not None:
+        projection = DefaultFutureProjection.model_validate(structured_output).model_dump()
+    elif response_text:
+        projection = DefaultFutureProjection.model_validate_json(response_text).model_dump()
+    else:
+        raise RuntimeError("OrbitProjector returned no structured projection")
+    valid_evidence_ids = {
+        row["experience_id"] for row in [*supporting, *contradictions]
+    }
+    invalid_ids = set(projection["evidence_ids"]) - valid_evidence_ids
+    if invalid_ids:
+        raise RuntimeError(f"OrbitProjector cited unknown evidence IDs: {sorted(invalid_ids)}")
+    return projection, model_calls
 
 
 def principle_for(pattern: dict[str, Any]) -> str:
@@ -421,6 +516,118 @@ def update_visual_state(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     save_session(session_id, session)
     return session.payload()
+
+
+@app.post("/api/patterns/{pattern_id}/projection")
+async def create_default_future(
+    pattern_id: str, x_cosmos_session: str | None = Header(default=None)
+) -> dict[str, Any]:
+    session_id = normalized_session_id(x_cosmos_session)
+    lock = session_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        session = load_session(session_id)
+        state = session.require_state()
+        existing = session.trajectory_projections.get(pattern_id)
+        if existing:
+            return {"projection": existing, "state": session.payload(), "cached": True}
+        try:
+            pattern = next(row for row in state.patterns() if row["pattern_id"] == pattern_id)
+        except StopIteration as exc:
+            raise HTTPException(status_code=404, detail="Unknown pattern") from exc
+        experience_map = {
+            row["experience_id"]: row for row in state.experience_rows()
+        }
+        supporting = [
+            experience_map[item_id]
+            for item_id in pattern["supporting_experience_ids"]
+            if item_id in experience_map
+        ]
+        contradictions = [
+            experience_map[item_id]
+            for item_id in pattern["contradicting_experience_ids"]
+            if item_id in experience_map
+        ]
+        if len(supporting) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Default Future requires at least three supporting experiences",
+            )
+        try:
+            projection, calls = await invoke_orbit_projector(
+                pattern, supporting, contradictions
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"OrbitProjector failed: {exc}") from exc
+        stored_projection = {
+            **projection,
+            "pattern_id": pattern_id,
+            "model": MODEL_ID,
+            "model_calls": calls,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        session.trajectory_projections[pattern_id] = stored_projection
+        session.agent_call_count += calls
+        save_session(session_id, session)
+        if store:
+            store.log_run(
+                session_id,
+                {
+                    "kind": "PROJECT_DEFAULT_FUTURE",
+                    "pattern_id": pattern_id,
+                    "evidence_ids": stored_projection["evidence_ids"],
+                    "model": MODEL_ID,
+                    "model_calls": calls,
+                },
+            )
+        return {"projection": stored_projection, "state": session.payload(), "cached": False}
+
+
+@app.post("/api/patterns/{pattern_id}/changed-orbit")
+def confirm_changed_orbit(
+    pattern_id: str,
+    payload: ChangedOrbitInput,
+    x_cosmos_session: str | None = Header(default=None),
+) -> dict[str, Any]:
+    session_id = normalized_session_id(x_cosmos_session)
+    session = load_session(session_id)
+    session.require_state()
+    projection = session.trajectory_projections.get(pattern_id)
+    if not projection:
+        raise HTTPException(status_code=409, detail="See the default future first")
+    alternative = next(
+        (
+            row
+            for row in projection["alternatives"]
+            if row["alternative_id"] == payload.alternative_id
+        ),
+        None,
+    )
+    if not alternative:
+        raise HTTPException(status_code=400, detail="Unknown alternative response")
+    changed_orbit = {
+        "pattern_id": pattern_id,
+        "alternative_id": alternative["alternative_id"],
+        "future_choice_position": payload.future_choice_position.model_dump(),
+        "current_orbit": {
+            "trigger": projection["repeated_trigger"],
+            "response": projection["repeated_response"],
+            "observed_outcome": projection["observed_outcome"],
+        },
+        "changed_orbit": alternative,
+        "confirmed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    session.changed_orbits[pattern_id] = changed_orbit
+    save_session(session_id, session)
+    if store:
+        store.log_run(
+            session_id,
+            {
+                "kind": "CONFIRM_CHANGED_ORBIT",
+                "pattern_id": pattern_id,
+                "alternative_id": alternative["alternative_id"],
+            },
+        )
+    return {"changed_orbit": changed_orbit, "state": session.payload()}
 
 
 @app.post("/api/patterns/{pattern_id}/principle")

@@ -1,16 +1,25 @@
 import { Html, Line, OrbitControls, useTexture } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { Experience, Pattern } from "./types";
+import type { ChangedOrbit, FutureChoicePosition, Pattern } from "./types";
+
+interface FutureChoiceDraft {
+  patternId: string;
+  alternativeId: string;
+  position: FutureChoicePosition;
+}
 
 interface ThreeCosmosViewProps {
   patterns: Pattern[];
-  experiences: Experience[];
   selectedPatternId: string | null;
   onSelectPattern: (patternId: string) => void;
+  futureChoice: FutureChoiceDraft | null;
+  changedOrbits: Record<string, ChangedOrbit>;
+  escapeAnimationId: number;
+  onMoveFutureChoice: (position: FutureChoicePosition) => void;
 }
 
 interface NebulaSpec {
@@ -18,6 +27,12 @@ interface NebulaSpec {
   rotation: [number, number, number];
   scale: [number, number, number];
   colors: [string, string, string];
+}
+
+interface FocusFrame {
+  position: [number, number, number];
+  normal: [number, number, number];
+  right: [number, number, number];
 }
 
 type VisualPresetName = "BASELINE" | "A" | "B" | "C" | "D" | "D2";
@@ -54,6 +69,8 @@ const SATELLITE_NEBULAE: NebulaSpec[] = [
     colors: ["#50cdf2", "#a858d8", "#ee6b55"],
   },
 ];
+
+const UNIVERSE_ROTATION: [number, number, number] = [0.02, -0.06, -0.015];
 
 const VISUAL_PRESETS: Record<VisualPresetName, VisualPreset> = {
   BASELINE: {
@@ -1509,6 +1526,28 @@ function LayeredStarField({ visual }: { visual: VisualPreset }) {
   );
 }
 
+function useRadialGlowTexture() {
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const gradient = context.createRadialGradient(32, 32, 1, 32, 32, 31);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.1, "rgba(255,255,255,0.9)");
+    gradient.addColorStop(0.34, "rgba(255,255,255,0.24)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 64, 64);
+    const nextTexture = new THREE.CanvasTexture(canvas);
+    nextTexture.colorSpace = THREE.SRGBColorSpace;
+    return nextTexture;
+  }, []);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  return texture;
+}
+
 function ExperienceStars({
   pattern,
   selected,
@@ -1524,24 +1563,7 @@ function ExperienceStars({
     () => createExperiencePositions(pattern, volumetric),
     [pattern, volumetric],
   );
-  const glowTexture = useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 64;
-    const context = canvas.getContext("2d");
-    if (!context) return null;
-    const gradient = context.createRadialGradient(32, 32, 1, 32, 32, 31);
-    gradient.addColorStop(0, "rgba(255,255,255,1)");
-    gradient.addColorStop(0.1, "rgba(255,255,255,0.9)");
-    gradient.addColorStop(0.34, "rgba(255,255,255,0.24)");
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, 64, 64);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-  }, []);
-  useEffect(() => () => glowTexture?.dispose(), [glowTexture]);
+  const glowTexture = useRadialGlowTexture();
   return (
     <group>
       {stars.map((star) => (
@@ -1567,6 +1589,313 @@ function ExperienceStars({
           </sprite>
         </group>
       ))}
+    </group>
+  );
+}
+
+const blackHoleVertexShader = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const blackHoleFragmentShader = `
+  varying vec2 vUv;
+  uniform float uTime;
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+  void main() {
+    vec2 p = vUv - 0.5;
+    p.y *= 2.05;
+    float radius = length(p);
+    float angle = atan(p.y, p.x);
+    float warp = sin(angle * 5.0 - uTime * 0.22) * 0.012;
+    warp += sin(angle * 11.0 + uTime * 0.13) * 0.006;
+    float ring = exp(-pow((radius - 0.285 - warp) / 0.046, 2.0));
+    float outer = exp(-pow((radius - 0.38 + warp * 0.5) / 0.085, 2.0)) * 0.24;
+    float core = 1.0 - smoothstep(0.12, 0.235, radius);
+    float flicker = 0.82 + hash(vec2(floor(angle * 18.0), floor(uTime * 1.3))) * 0.18;
+    vec3 warm = mix(vec3(0.95, 0.49, 0.16), vec3(1.0, 0.87, 0.56), smoothstep(-0.4, 0.7, p.x));
+    vec3 color = warm * ring * flicker + vec3(0.16, 0.44, 0.52) * outer;
+    color *= 1.0 - core * 0.98;
+    float alpha = max(core * 0.96, ring * 0.88 + outer);
+    alpha *= 1.0 - smoothstep(0.48, 0.62, radius);
+    if (alpha < 0.006) discard;
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+function BlackHoleVisual() {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+  const dustRef = useRef<THREE.Group>(null);
+  const dust = useMemo(() => {
+    const random = mulberry32(927451);
+    return Array.from({ length: 72 }, (_, index) => {
+      const angle = random() * Math.PI * 2;
+      const radius = 0.82 + random() * 0.82;
+      return {
+        id: index,
+        position: [
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius * 0.28,
+          (random() - 0.5) * 0.16,
+        ] as [number, number, number],
+        size: 0.008 + random() * 0.018,
+        opacity: 0.18 + random() * 0.42,
+      };
+    });
+  }, []);
+
+  useFrame((state, delta) => {
+    if (materialRef.current) materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+    if (dustRef.current) dustRef.current.rotation.z -= delta * 0.035;
+  });
+
+  return (
+    <group position={[0.05, 0.02, 1.26]}>
+      <mesh scale={[1.6, 1.12, 1]}>
+        <planeGeometry args={[2.45, 2.45]} />
+        <shaderMaterial
+          ref={materialRef}
+          vertexShader={blackHoleVertexShader}
+          fragmentShader={blackHoleFragmentShader}
+          uniforms={{ uTime: { value: 0 } }}
+          transparent
+          depthWrite={false}
+          blending={THREE.NormalBlending}
+          toneMapped={false}
+        />
+      </mesh>
+      <group ref={dustRef} rotation={[0, 0, -0.08]}>
+        {dust.map((point) => (
+          <mesh key={point.id} position={point.position} scale={point.size}>
+            <sphereGeometry args={[1, 6, 6]} />
+            <meshBasicMaterial
+              color="#f2cf72"
+              transparent
+              opacity={point.opacity}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  );
+}
+
+function FutureChoiceStar({
+  position,
+  parent,
+  onMove,
+}: {
+  position: FutureChoicePosition;
+  parent: RefObject<THREE.Group | null>;
+  onMove: (position: FutureChoicePosition) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const dragPlaneRef = useRef(new THREE.Plane());
+  const glowTexture = useRadialGlowTexture();
+  useEffect(() => {
+    if (!dragging) return;
+    const stop = () => {
+      draggingRef.current = false;
+      setDragging(false);
+      document.body.style.cursor = "default";
+    };
+    window.addEventListener("pointerup", stop, { once: true });
+    return () => window.removeEventListener("pointerup", stop);
+  }, [dragging]);
+
+  return (
+    <group position={[position.x, position.y, position.z]}>
+      <group>
+        <mesh
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            const normal = event.camera.getWorldDirection(new THREE.Vector3());
+            dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, event.point);
+            draggingRef.current = true;
+            setDragging(true);
+            document.body.style.cursor = "grabbing";
+            const target = event.target as EventTarget & {
+              setPointerCapture: (pointerId: number) => void;
+            };
+            target.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (!draggingRef.current || !parent.current) return;
+            event.stopPropagation();
+            const world = new THREE.Vector3();
+            if (!event.ray.intersectPlane(dragPlaneRef.current, world)) return;
+            const local = parent.current.worldToLocal(world);
+            onMove({
+              x: THREE.MathUtils.clamp(local.x, -3.9, 4.2),
+              y: THREE.MathUtils.clamp(local.y, -2.3, 2.5),
+              z: THREE.MathUtils.clamp(local.z, -1.2, 1.2),
+            });
+          }}
+          onPointerUp={(event) => {
+            event.stopPropagation();
+            draggingRef.current = false;
+            setDragging(false);
+            document.body.style.cursor = "default";
+            const target = event.target as EventTarget & {
+              releasePointerCapture: (pointerId: number) => void;
+            };
+            target.releasePointerCapture(event.pointerId);
+          }}
+        >
+          <sphereGeometry args={[0.24, 18, 18]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[0.085, 18, 18]} />
+          <meshBasicMaterial color="#fff1b8" toneMapped={false} />
+        </mesh>
+        <sprite scale={[0.72, 0.72, 1]}>
+          <spriteMaterial
+            map={glowTexture}
+            color="#e8bd56"
+            transparent
+            opacity={dragging ? 0.82 : 0.58}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        </sprite>
+        <Html position={[0, -0.28, 0]} center style={{ pointerEvents: "none" }}>
+          <div className="future-choice-label">Future Choice Star</div>
+        </Html>
+      </group>
+    </group>
+  );
+}
+
+const escapeTrailVertexShader = `
+  attribute float aProgress;
+  uniform float uHead;
+  uniform float uPixelRatio;
+  varying float vAlpha;
+  void main() {
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    float behind = step(aProgress, uHead);
+    float tail = smoothstep(max(0.0, uHead - 0.42), uHead, aProgress);
+    vAlpha = behind * tail;
+    gl_PointSize = (3.0 + tail * 6.0) * uPixelRatio * (8.0 / max(2.0, -mvPosition.z));
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const escapeTrailFragmentShader = `
+  varying float vAlpha;
+  void main() {
+    vec2 centered = gl_PointCoord - 0.5;
+    float radial = smoothstep(0.5, 0.04, length(centered));
+    vec3 color = mix(vec3(0.89, 0.58, 0.16), vec3(1.0, 0.95, 0.75), radial);
+    gl_FragColor = vec4(color, radial * vAlpha * 0.92);
+  }
+`;
+
+function GoldenEscapeTrajectory({
+  target,
+  animationId,
+  blackHole,
+}: {
+  target: FutureChoicePosition;
+  animationId: number;
+  blackHole: boolean;
+}) {
+  const starRef = useRef<THREE.Group>(null);
+  const trailMaterialRef = useRef<THREE.ShaderMaterial>(null);
+  const glowTexture = useRadialGlowTexture();
+  const progressRef = useRef(animationId > 0 ? 0 : 1);
+  const reduceMotion = useMemo(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
+  const curve = useMemo(() => {
+    const start = new THREE.Vector3(blackHole ? 0.18 : 0.52, blackHole ? 0.04 : -0.08, 1.18);
+    const end = new THREE.Vector3(target.x, target.y, target.z);
+    const lift = Math.max(0.8, Math.abs(end.y - start.y) * 0.55);
+    return new THREE.CatmullRomCurve3([
+      start,
+      new THREE.Vector3(start.x + 0.72, start.y + lift * 0.72, start.z + 0.12),
+      new THREE.Vector3(end.x - 0.74, end.y + lift * 0.34, end.z + 0.18),
+      end,
+    ]);
+  }, [blackHole, target.x, target.y, target.z]);
+  const trailGeometry = useMemo(() => {
+    const count = 84;
+    const points = curve.getPoints(count - 1);
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    geometry.setAttribute(
+      "aProgress",
+      new THREE.Float32BufferAttribute(points.map((_, index) => index / (count - 1)), 1),
+    );
+    return geometry;
+  }, [curve]);
+
+  useEffect(() => () => trailGeometry.dispose(), [trailGeometry]);
+  useEffect(() => {
+    progressRef.current = reduceMotion ? 1 : 0;
+    if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = progressRef.current;
+  }, [animationId, reduceMotion]);
+
+  useFrame((_, delta) => {
+    if (progressRef.current < 1) {
+      progressRef.current = Math.min(1, progressRef.current + delta / 2.15);
+    }
+    const eased = 1 - Math.pow(1 - progressRef.current, 3);
+    if (starRef.current) starRef.current.position.copy(curve.getPoint(eased));
+    if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = eased;
+  });
+
+  return (
+    <group>
+      <Line
+        points={curve.getPoints(48)}
+        color="#dfb34d"
+        lineWidth={0.36}
+        transparent
+        opacity={0.15}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+      <points geometry={trailGeometry}>
+        <shaderMaterial
+          ref={trailMaterialRef}
+          vertexShader={escapeTrailVertexShader}
+          fragmentShader={escapeTrailFragmentShader}
+          uniforms={{
+            uHead: { value: progressRef.current },
+            uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) },
+          }}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </points>
+      <group ref={starRef}>
+        <mesh>
+          <sphereGeometry args={[0.07, 16, 16]} />
+          <meshBasicMaterial color="#fff4c9" toneMapped={false} />
+        </mesh>
+        <sprite scale={[0.66, 0.66, 1]}>
+          <spriteMaterial
+            map={glowTexture}
+            color="#e5b94e"
+            transparent
+            opacity={0.7}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        </sprite>
+      </group>
     </group>
   );
 }
@@ -1612,6 +1941,10 @@ function PatternNebula({
   selected,
   dimmed,
   onSelect,
+  futureChoice,
+  changedOrbit,
+  escapeAnimationId,
+  onMoveFutureChoice,
 }: {
   pattern: Pattern;
   spec: NebulaSpec;
@@ -1620,6 +1953,10 @@ function PatternNebula({
   selected: boolean;
   dimmed: boolean;
   onSelect: () => void;
+  futureChoice: FutureChoiceDraft | null;
+  changedOrbit: ChangedOrbit | null;
+  escapeAnimationId: number;
+  onMoveFutureChoice: (position: FutureChoicePosition) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -1744,6 +2081,24 @@ function PatternNebula({
         volumetric={usesPhotographicHybrid || usesPhotographicDepth}
       />
 
+      {pattern.visual_state === "black_hole" && !dimmed && <BlackHoleVisual />}
+
+      {selected && futureChoice && (
+        <FutureChoiceStar
+          position={futureChoice.position}
+          parent={groupRef}
+          onMove={onMoveFutureChoice}
+        />
+      )}
+
+      {selected && changedOrbit && (
+        <GoldenEscapeTrajectory
+          target={changedOrbit.future_choice_position}
+          animationId={escapeAnimationId}
+          blackHole={pattern.visual_state === "black_hole"}
+        />
+      )}
+
       <mesh
         // Keep the dominant nebula's invisible hit volume inside its visual
         // core so it cannot intercept clicks intended for a distant pattern.
@@ -1780,29 +2135,39 @@ function PatternNebula({
 }
 
 function CameraRig({
-  selectedPosition,
+  selectedFrame,
   orbitPreset,
+  homeCamera,
 }: {
-  selectedPosition: [number, number, number] | null;
+  selectedFrame: FocusFrame | null;
   orbitPreset: "D" | "D2" | null;
+  homeCamera: [number, number, number];
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
-  const focusStrength = useRef(0);
+  const transitionStrength = useRef(0);
 
   useEffect(() => {
-    focusStrength.current = selectedPosition ? 1 : 0;
-  }, [selectedPosition]);
+    transitionStrength.current = 1;
+  }, [selectedFrame]);
 
   useFrame((_, delta) => {
     const orbit = controls.current;
-    if (!orbit || !selectedPosition || focusStrength.current < 0.002) return;
-    const target = new THREE.Vector3(...selectedPosition);
-    orbit.target.lerp(target, 1 - Math.exp(-delta * 3.1));
-    const direction = camera.position.clone().sub(target).normalize();
-    const destination = target.clone().add(direction.multiplyScalar(9.8));
-    camera.position.lerp(destination, 1 - Math.exp(-delta * 1.7));
-    focusStrength.current *= Math.exp(-delta * 1.35);
+    if (!orbit || transitionStrength.current < 0.002) return;
+    const target = selectedFrame
+      ? new THREE.Vector3(...selectedFrame.position)
+        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(0.54))
+        .add(new THREE.Vector3(0, 0.04, 0))
+      : new THREE.Vector3(0, 0, 0);
+    const destination = selectedFrame
+      ? target.clone()
+        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(9.35))
+        .add(new THREE.Vector3(0, 0.08, 0))
+      : new THREE.Vector3(...homeCamera);
+    orbit.target.lerp(target, 1 - Math.exp(-delta * 3.2));
+    camera.position.lerp(destination, 1 - Math.exp(-delta * 2.05));
+    camera.up.lerp(new THREE.Vector3(0, 1, 0), 1 - Math.exp(-delta * 3.4)).normalize();
+    transitionStrength.current *= Math.exp(-delta * 1.55);
     orbit.update();
   });
 
@@ -1847,12 +2212,30 @@ function Scene({
   selectedPatternId,
   onSelectPattern,
   visual,
-}: Omit<ThreeCosmosViewProps, "experiences"> & { visual: VisualPreset }) {
+  futureChoice,
+  changedOrbits,
+  escapeAnimationId,
+  onMoveFutureChoice,
+}: ThreeCosmosViewProps & { visual: VisualPreset }) {
   const nebulaSpecs = useMemo(() => [visual.main, ...SATELLITE_NEBULAE], [visual]);
   const selectedIndex = patterns.findIndex((pattern) => pattern.pattern_id === selectedPatternId);
-  const selectedPosition = selectedIndex >= 0
-    ? nebulaSpecs[selectedIndex % nebulaSpecs.length].position
-    : null;
+  const selectedFrame = useMemo(() => {
+    if (selectedIndex < 0) return null;
+    const spec = nebulaSpecs[selectedIndex % nebulaSpecs.length];
+    const universeQuaternion = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(...UNIVERSE_ROTATION),
+    );
+    const localQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(...spec.rotation));
+    const worldQuaternion = universeQuaternion.clone().multiply(localQuaternion);
+    const position = new THREE.Vector3(...spec.position).applyQuaternion(universeQuaternion);
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(worldQuaternion).normalize();
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(worldQuaternion).normalize();
+    return {
+      position: position.toArray() as [number, number, number],
+      normal: normal.toArray() as [number, number, number],
+      right: right.toArray() as [number, number, number],
+    };
+  }, [nebulaSpecs, selectedIndex]);
 
   return (
     <>
@@ -1860,7 +2243,7 @@ function Scene({
       <fog attach="fog" args={["#02050a", 21, 52]} />
       <ambientLight intensity={0.08} />
       <LayeredStarField visual={visual} />
-      <group rotation={[0.02, -0.06, -0.015]}>
+      <group rotation={UNIVERSE_ROTATION}>
         {patterns.map((pattern, index) => (
           <PatternNebula
             key={pattern.pattern_id}
@@ -1871,12 +2254,17 @@ function Scene({
             selected={selectedPatternId === pattern.pattern_id}
             dimmed={selectedPatternId !== null && selectedPatternId !== pattern.pattern_id}
             onSelect={() => onSelectPattern(pattern.pattern_id)}
+            futureChoice={futureChoice?.patternId === pattern.pattern_id ? futureChoice : null}
+            changedOrbit={changedOrbits[pattern.pattern_id] ?? null}
+            escapeAnimationId={escapeAnimationId}
+            onMoveFutureChoice={onMoveFutureChoice}
           />
         ))}
       </group>
       <CameraRig
-        selectedPosition={selectedPosition}
+        selectedFrame={selectedFrame}
         orbitPreset={visual.name === "D" || visual.name === "D2" ? visual.name : null}
+        homeCamera={visual.camera}
       />
       <EffectComposer multisampling={0}>
         <Bloom
@@ -1895,6 +2283,10 @@ export function ThreeCosmosView({
   patterns,
   selectedPatternId,
   onSelectPattern,
+  futureChoice,
+  changedOrbits,
+  escapeAnimationId,
+  onMoveFutureChoice,
 }: ThreeCosmosViewProps) {
   const visual = useMemo(resolveVisualPreset, []);
   return (
@@ -1915,6 +2307,10 @@ export function ThreeCosmosView({
           selectedPatternId={selectedPatternId}
           onSelectPattern={onSelectPattern}
           visual={visual}
+          futureChoice={futureChoice}
+          changedOrbits={changedOrbits}
+          escapeAnimationId={escapeAnimationId}
+          onMoveFutureChoice={onMoveFutureChoice}
         />
       </Canvas>
     </div>
