@@ -27,6 +27,7 @@ interface PatternDrawerProps {
   onSeeDefaultFuture: () => void;
   onChooseAlternative: (alternative: AlternativeResponse) => void;
   onConfirmChangedOrbit: () => void;
+  cosmicEventMode: boolean;
 }
 
 const visualOptions: Array<{ value: VisualState; label: string; hint: string }> = [
@@ -48,6 +49,7 @@ export function PatternDrawer({
   onSeeDefaultFuture,
   onChooseAlternative,
   onConfirmChangedOrbit,
+  cosmicEventMode,
 }: PatternDrawerProps) {
   const [showAlternatives, setShowAlternatives] = useState(false);
 
@@ -76,10 +78,11 @@ export function PatternDrawer({
 
   return (
     <aside
-      className="pattern-reading"
+      className={`pattern-reading${cosmicEventMode ? " is-event-hidden" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={`Inspect ${pattern.name}`}
+      aria-hidden={cosmicEventMode}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}

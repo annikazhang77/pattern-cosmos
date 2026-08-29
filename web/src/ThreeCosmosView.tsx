@@ -4,7 +4,13 @@ import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { ChangedOrbit, FutureChoicePosition, Pattern } from "./types";
+import type {
+  ChangedOrbit,
+  CosmicEventState,
+  DefaultFutureProjection,
+  FutureChoicePosition,
+  Pattern,
+} from "./types";
 
 interface FutureChoiceDraft {
   patternId: string;
@@ -17,10 +23,15 @@ interface ThreeCosmosViewProps {
   selectedPatternId: string | null;
   onSelectPattern: (patternId: string) => void;
   futureChoice: FutureChoiceDraft | null;
+  projections: Record<string, DefaultFutureProjection>;
   changedOrbits: Record<string, ChangedOrbit>;
   escapeAnimationId: number;
+  cosmicEvent: CosmicEventState | null;
   onMoveFutureChoice: (position: FutureChoicePosition) => void;
+  onTrajectoryComplete: () => void;
 }
+
+type TrajectoryMode = "hidden" | "current" | "animating" | "changed";
 
 interface NebulaSpec {
   position: [number, number, number];
@@ -1777,8 +1788,8 @@ function FutureChoiceStar({
             if (!event.ray.intersectPlane(dragPlaneRef.current, world)) return;
             const local = parent.current.worldToLocal(world);
             onMove({
-              x: THREE.MathUtils.clamp(local.x, -3.9, 4.2),
-              y: THREE.MathUtils.clamp(local.y, -2.3, 2.5),
+              x: THREE.MathUtils.clamp(local.x, -2.2, 2.25),
+              y: THREE.MathUtils.clamp(local.y, -1.35, 1.45),
               z: THREE.MathUtils.clamp(local.z, -1.2, 1.2),
             });
           }}
@@ -1847,16 +1858,22 @@ function GoldenEscapeTrajectory({
   target,
   animationId,
   blackHole,
+  mode,
+  onComplete,
 }: {
   target: FutureChoicePosition;
   animationId: number;
   blackHole: boolean;
+  mode: Exclude<TrajectoryMode, "hidden">;
+  onComplete: () => void;
 }) {
   const starRef = useRef<THREE.Group>(null);
   const destinationRef = useRef<THREE.Group>(null);
   const trailMaterialRef = useRef<THREE.ShaderMaterial>(null);
+  const growingLineRef = useRef<any>(null);
   const glowTexture = useRadialGlowTexture();
-  const progressRef = useRef(animationId > 0 ? 0 : 1);
+  const progressRef = useRef(mode === "animating" ? 0 : 1);
+  const notifiedRef = useRef(false);
   const reduceMotion = useMemo(
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     [],
@@ -1911,12 +1928,15 @@ function GoldenEscapeTrajectory({
 
   useEffect(() => () => trailGeometry.dispose(), [trailGeometry]);
   useEffect(() => {
-    progressRef.current = reduceMotion ? 1 : 0;
+    progressRef.current = mode === "animating" && !reduceMotion ? 0 : 1;
+    notifiedRef.current = false;
     if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = progressRef.current;
-  }, [animationId, reduceMotion]);
+    const geometry = growingLineRef.current?.geometry as THREE.BufferGeometry | undefined;
+    if (geometry) geometry.setDrawRange(0, mode === "animating" ? 0 : Infinity);
+  }, [animationId, mode, reduceMotion]);
 
   useFrame((_, delta) => {
-    if (progressRef.current < 1) {
+    if (mode === "animating" && progressRef.current < 1) {
       progressRef.current = Math.min(1, progressRef.current + delta / 3.0);
     }
     const eased = progressRef.current < 0.5
@@ -1928,11 +1948,19 @@ function GoldenEscapeTrajectory({
       destinationRef.current.scale.setScalar(Math.max(0.001, reveal));
     }
     if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = eased;
+    const growingGeometry = growingLineRef.current?.geometry as THREE.BufferGeometry | undefined;
+    if (growingGeometry && mode === "animating") {
+      growingGeometry.setDrawRange(0, Math.max(2, Math.ceil(eased * 83)));
+    }
+    if (mode === "animating" && progressRef.current >= 1 && !notifiedRef.current) {
+      notifiedRef.current = true;
+      onComplete();
+    }
   });
 
   return (
     <group>
-      <Line
+      {mode !== "animating" && <Line
         points={currentOrbit}
         color="#78909c"
         lineWidth={0.58}
@@ -1940,8 +1968,8 @@ function GoldenEscapeTrajectory({
         opacity={0.28}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
-      />
-      <Line
+      />}
+      {mode === "changed" && <Line
         points={curve.getPoints(82)}
         color="#e8c66c"
         lineWidth={0.82}
@@ -1949,8 +1977,18 @@ function GoldenEscapeTrajectory({
         opacity={0.46}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
-      />
-      <points geometry={trailGeometry}>
+      />}
+      {mode === "animating" && <Line
+        ref={growingLineRef}
+        points={curve.getPoints(82)}
+        color="#f2d47d"
+        lineWidth={0.9}
+        transparent
+        opacity={0.56}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />}
+      {mode === "animating" && <points geometry={trailGeometry}>
         <shaderMaterial
           ref={trailMaterialRef}
           vertexShader={escapeTrailVertexShader}
@@ -1964,8 +2002,8 @@ function GoldenEscapeTrajectory({
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
-      </points>
-      <group ref={starRef}>
+      </points>}
+      {mode === "animating" && <group ref={starRef}>
         <mesh>
           <sphereGeometry args={[0.07, 16, 16]} />
           <meshBasicMaterial color="#fff4c9" toneMapped={false} />
@@ -1980,8 +2018,8 @@ function GoldenEscapeTrajectory({
             depthWrite={false}
           />
         </sprite>
-      </group>
-      <group ref={destinationRef} position={[target.x, target.y, target.z]} scale={0.001}>
+      </group>}
+      {mode !== "current" && <group ref={destinationRef} position={[target.x, target.y, target.z]} scale={mode === "changed" ? 1 : 0.001}>
         <mesh>
           <sphereGeometry args={[0.085, 18, 18]} />
           <meshBasicMaterial color="#fff4cf" toneMapped={false} />
@@ -2000,7 +2038,7 @@ function GoldenEscapeTrajectory({
             <meshBasicMaterial color={index % 2 === 0 ? "#f5dda0" : "#eef6f2"} toneMapped={false} />
           </mesh>
         ))}
-      </group>
+      </group>}
     </group>
   );
 }
@@ -2048,8 +2086,10 @@ function PatternNebula({
   onSelect,
   futureChoice,
   changedOrbit,
+  trajectoryMode,
   escapeAnimationId,
   onMoveFutureChoice,
+  onTrajectoryComplete,
 }: {
   pattern: Pattern;
   spec: NebulaSpec;
@@ -2060,8 +2100,10 @@ function PatternNebula({
   onSelect: () => void;
   futureChoice: FutureChoiceDraft | null;
   changedOrbit: ChangedOrbit | null;
+  trajectoryMode: TrajectoryMode;
   escapeAnimationId: number;
   onMoveFutureChoice: (position: FutureChoicePosition) => void;
+  onTrajectoryComplete: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -2208,11 +2250,13 @@ function PatternNebula({
         />
       )}
 
-      {changedOrbit && (
+      {trajectoryMode !== "hidden" && (
         <GoldenEscapeTrajectory
-          target={changedOrbit.future_choice_position}
+          target={changedOrbit?.future_choice_position ?? { x: 2.15, y: 0.72, z: 0.55 }}
           animationId={escapeAnimationId}
           blackHole={pattern.visual_state === "black_hole"}
+          mode={trajectoryMode}
+          onComplete={onTrajectoryComplete}
         />
       )}
 
@@ -2255,12 +2299,12 @@ function CameraRig({
   selectedFrame,
   orbitPreset,
   homeCamera,
-  trajectoryActive,
+  cosmicEvent,
 }: {
   selectedFrame: FocusFrame | null;
   orbitPreset: "D" | "D2" | null;
   homeCamera: [number, number, number];
-  trajectoryActive: boolean;
+  cosmicEvent: CosmicEventState | null;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
@@ -2268,19 +2312,21 @@ function CameraRig({
 
   useEffect(() => {
     transitionStrength.current = 1;
-  }, [selectedFrame, trajectoryActive]);
+  }, [selectedFrame, cosmicEvent?.kind, cosmicEvent?.phase]);
 
   useFrame((_, delta) => {
     const orbit = controls.current;
     if (!orbit || transitionStrength.current < 0.002) return;
+    const eventOffset = cosmicEvent?.kind === "CHANGE_ORBIT" ? 1.42 : cosmicEvent?.kind === "BLACK_HOLE" ? 0 : 0.54;
+    const eventDistance = cosmicEvent?.kind === "CHANGE_ORBIT" ? 12.2 : cosmicEvent?.kind === "BLACK_HOLE" ? 7.55 : 9.35;
     const target = selectedFrame
       ? new THREE.Vector3(...selectedFrame.position)
-        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(trajectoryActive ? 1.9 : 0.54))
+        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(eventOffset))
         .add(new THREE.Vector3(0, 0.04, 0))
       : new THREE.Vector3(0, 0, 0);
     const destination = selectedFrame
       ? target.clone()
-        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(trajectoryActive ? 12.9 : 9.35))
+        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(eventDistance))
         .add(new THREE.Vector3(0, 0.08, 0))
       : new THREE.Vector3(...homeCamera);
     orbit.target.lerp(target, 1 - Math.exp(-delta * 3.2));
@@ -2332,13 +2378,15 @@ function Scene({
   onSelectPattern,
   visual,
   futureChoice,
+  projections,
   changedOrbits,
   escapeAnimationId,
+  cosmicEvent,
   onMoveFutureChoice,
+  onTrajectoryComplete,
 }: ThreeCosmosViewProps & { visual: VisualPreset }) {
   const nebulaSpecs = useMemo(() => [visual.main, ...SATELLITE_NEBULAE], [visual]);
   const selectedIndex = patterns.findIndex((pattern) => pattern.pattern_id === selectedPatternId);
-  const trajectoryActive = selectedPatternId !== null && Boolean(changedOrbits[selectedPatternId]);
   const selectedFrame = useMemo(() => {
     if (selectedIndex < 0) return null;
     const spec = nebulaSpecs[selectedIndex % nebulaSpecs.length];
@@ -2365,27 +2413,47 @@ function Scene({
       <LayeredStarField visual={visual} />
       <group rotation={UNIVERSE_ROTATION}>
         {patterns.map((pattern, index) => (
+          (() => {
+            const isSelected = selectedPatternId === pattern.pattern_id;
+            const eventForPattern = cosmicEvent?.patternId === pattern.pattern_id ? cosmicEvent : null;
+            let trajectoryMode: TrajectoryMode = "hidden";
+            if (isSelected && projections[pattern.pattern_id]) {
+              trajectoryMode = changedOrbits[pattern.pattern_id] ? "changed" : "current";
+            }
+            if (eventForPattern?.kind === "BLACK_HOLE") trajectoryMode = "hidden";
+            if (eventForPattern?.kind === "CHANGE_ORBIT") {
+              trajectoryMode = eventForPattern.phase === "PREFRAME"
+                ? "hidden"
+                : eventForPattern.phase === "PLAYING"
+                  ? "animating"
+                  : "changed";
+            }
+            return (
           <PatternNebula
             key={pattern.pattern_id}
             pattern={pattern}
             spec={nebulaSpecs[index % nebulaSpecs.length]}
             visual={visual}
             dominant={index === 0}
-            selected={selectedPatternId === pattern.pattern_id}
+            selected={isSelected}
             dimmed={selectedPatternId !== null && selectedPatternId !== pattern.pattern_id}
             onSelect={() => onSelectPattern(pattern.pattern_id)}
             futureChoice={futureChoice?.patternId === pattern.pattern_id ? futureChoice : null}
             changedOrbit={changedOrbits[pattern.pattern_id] ?? null}
+            trajectoryMode={trajectoryMode}
             escapeAnimationId={escapeAnimationId}
             onMoveFutureChoice={onMoveFutureChoice}
+            onTrajectoryComplete={onTrajectoryComplete}
           />
+            );
+          })()
         ))}
       </group>
       <CameraRig
         selectedFrame={selectedFrame}
         orbitPreset={visual.name === "D" || visual.name === "D2" ? visual.name : null}
         homeCamera={visual.camera}
-        trajectoryActive={trajectoryActive}
+        cosmicEvent={cosmicEvent}
       />
       <EffectComposer multisampling={0}>
         <Bloom
@@ -2405,9 +2473,12 @@ export function ThreeCosmosView({
   selectedPatternId,
   onSelectPattern,
   futureChoice,
+  projections,
   changedOrbits,
   escapeAnimationId,
+  cosmicEvent,
   onMoveFutureChoice,
+  onTrajectoryComplete,
 }: ThreeCosmosViewProps) {
   const visual = useMemo(resolveVisualPreset, []);
   return (
@@ -2429,9 +2500,12 @@ export function ThreeCosmosView({
           onSelectPattern={onSelectPattern}
           visual={visual}
           futureChoice={futureChoice}
+          projections={projections}
           changedOrbits={changedOrbits}
           escapeAnimationId={escapeAnimationId}
+          cosmicEvent={cosmicEvent}
           onMoveFutureChoice={onMoveFutureChoice}
+          onTrajectoryComplete={onTrajectoryComplete}
         />
       </Canvas>
     </div>

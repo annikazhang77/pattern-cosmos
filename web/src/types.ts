@@ -84,6 +84,14 @@ export interface ChangedOrbit {
   confirmed_at: string;
 }
 
+export type InteractionMode = "READ_MODE" | "COSMIC_EVENT_MODE";
+
+export interface CosmicEventState {
+  kind: "BLACK_HOLE" | "CHANGE_ORBIT";
+  phase: "PREFRAME" | "PLAYING" | "SETTLED";
+  patternId: string;
+}
+
 export interface AppState {
   loaded: boolean;
   patterns: Pattern[];

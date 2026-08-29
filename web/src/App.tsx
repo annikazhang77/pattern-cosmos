@@ -8,7 +8,9 @@ import { ThreeCosmosView } from "./ThreeCosmosView";
 import type {
   AlternativeResponse,
   AppState,
+  CosmicEventState,
   FutureChoicePosition,
+  InteractionMode,
   VisualState,
 } from "./types";
 
@@ -38,6 +40,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [futureChoice, setFutureChoice] = useState<FutureChoiceDraft | null>(null);
   const [escapeAnimationId, setEscapeAnimationId] = useState(0);
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>("READ_MODE");
+  const [cosmicEvent, setCosmicEvent] = useState<CosmicEventState | null>(null);
+  const settleTimer = useRef<number | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
@@ -62,6 +67,10 @@ export default function App() {
         validRequestedFocus ?? nextState.last_routing?.target_pattern_id ?? null,
       );
     }).catch((requestError: Error) => setError(requestError.message));
+  }, []);
+
+  useEffect(() => () => {
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
   }, []);
 
   const selectedPattern = useMemo(
@@ -108,9 +117,36 @@ export default function App() {
     });
   };
 
-  const setVisualState = (visualState: VisualState) => {
+  const setVisualState = async (visualState: VisualState) => {
     if (!selectedPattern) return;
-    run(() => api.setVisualState(selectedPattern.pattern_id, visualState), setState);
+    if (visualState !== "black_hole" || selectedPattern.visual_state === "black_hole") {
+      run(() => api.setVisualState(selectedPattern.pattern_id, visualState), setState);
+      return;
+    }
+
+    const patternId = selectedPattern.pattern_id;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setBusy(true);
+    setError(null);
+    setInteractionMode("COSMIC_EVENT_MODE");
+    setCosmicEvent({ kind: "BLACK_HOLE", phase: "PREFRAME", patternId });
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 1050));
+      const nextState = await api.setVisualState(patternId, visualState);
+      setState(nextState);
+      setCosmicEvent({ kind: "BLACK_HOLE", phase: "PLAYING", patternId });
+      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 50 : 2800));
+      setCosmicEvent({ kind: "BLACK_HOLE", phase: "SETTLED", patternId });
+      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 700));
+      setCosmicEvent(null);
+      setInteractionMode("READ_MODE");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Something went wrong");
+      setCosmicEvent(null);
+      setInteractionMode("READ_MODE");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const seeDefaultFuture = () => {
@@ -125,7 +161,7 @@ export default function App() {
     setFutureChoice({
       patternId: selectedPattern.pattern_id,
       alternativeId: alternative.alternative_id,
-      position: { x: 3.72, y: 1.32, z: 0.78 },
+      position: { x: 2.15, y: 0.72, z: 0.55 },
     });
   };
 
@@ -133,21 +169,49 @@ export default function App() {
     setFutureChoice((current) => current ? { ...current, position } : current);
   };
 
-  const confirmChangedOrbit = () => {
+  const confirmChangedOrbit = async () => {
     if (!selectedPattern || !futureChoice || futureChoice.patternId !== selectedPattern.pattern_id) return;
-    run(
-      () => api.confirmChangedOrbit(
+    const patternId = selectedPattern.pattern_id;
+    const choice = futureChoice;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setBusy(true);
+    setError(null);
+    setInteractionMode("COSMIC_EVENT_MODE");
+    setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PREFRAME", patternId });
+    try {
+      const [result] = await Promise.all([
+        api.confirmChangedOrbit(
         selectedPattern.pattern_id,
-        futureChoice.alternativeId,
-        futureChoice.position,
-      ),
-      (result) => {
-        setState(result.state);
-        setEscapeAnimationId((value) => value + 1);
-        setFutureChoice(null);
-      },
-    );
+          choice.alternativeId,
+          choice.position,
+        ),
+        new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 760)),
+      ]);
+      setState(result.state);
+      setFutureChoice(null);
+      setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PLAYING", patternId });
+      setEscapeAnimationId((value) => value + 1);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Something went wrong");
+      setCosmicEvent(null);
+      setInteractionMode("READ_MODE");
+      setBusy(false);
+    }
   };
+
+  const finishTrajectoryEvent = useCallback(() => {
+    setCosmicEvent((current) => current?.kind === "CHANGE_ORBIT"
+      ? { ...current, phase: "SETTLED" }
+      : current);
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    settleTimer.current = window.setTimeout(() => {
+      setCosmicEvent(null);
+      setInteractionMode("READ_MODE");
+      setBusy(false);
+      settleTimer.current = null;
+    }, reducedMotion ? 30 : 850);
+  }, []);
 
   const createPrinciple = () => {
     if (!selectedPattern) return;
@@ -155,7 +219,12 @@ export default function App() {
   };
 
   return (
-    <main className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}`}>
+    <main
+      className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}${interactionMode === "COSMIC_EVENT_MODE" ? " is-cosmic-event" : " is-read-mode"}`}
+      data-interaction-mode={interactionMode}
+      data-cosmic-event={cosmicEvent?.kind ?? "NONE"}
+      data-cosmic-event-phase={cosmicEvent?.phase ?? "NONE"}
+    >
       <header className="topbar">
         <div className="brand-lockup">
           <Sparkle size={20} weight="fill" />
@@ -198,9 +267,12 @@ export default function App() {
               selectedPatternId={selectedPatternId}
               onSelectPattern={setSelectedPatternId}
               futureChoice={futureChoice}
+              projections={state.trajectory_projections}
               changedOrbits={state.changed_orbits}
               escapeAnimationId={escapeAnimationId}
+              cosmicEvent={cosmicEvent}
               onMoveFutureChoice={moveFutureChoice}
+              onTrajectoryComplete={finishTrajectoryEvent}
             />
           ) : (
             <div className="cosmos-empty">
@@ -241,6 +313,7 @@ export default function App() {
             onSeeDefaultFuture={seeDefaultFuture}
             onChooseAlternative={chooseAlternative}
             onConfirmChangedOrbit={confirmChangedOrbit}
+            cosmicEventMode={interactionMode === "COSMIC_EVENT_MODE"}
           />
         )}
       </section>

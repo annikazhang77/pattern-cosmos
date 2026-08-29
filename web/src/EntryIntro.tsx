@@ -7,7 +7,7 @@ interface EntryIntroProps {
 export function EntryIntro({ onComplete }: EntryIntroProps) {
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const timer = window.setTimeout(onComplete, reducedMotion ? 900 : 5600);
+    const timer = window.setTimeout(onComplete, reducedMotion ? 900 : 8200);
     return () => window.clearTimeout(timer);
   }, [onComplete]);
 
