@@ -1,0 +1,77 @@
+[
+  {
+    "experience_id": "EXP-001",
+    "date": "2026-01-08",
+    "text": "I tried to make a small weekend newsletter archive. After the email template settings failed twice, I spent the evening comparing three newer publishing tools and never finished the archive."
+  },
+  {
+    "experience_id": "EXP-002",
+    "date": "2026-02-03",
+    "text": "A personal photo-catalog script hit a minor environment error. Instead of reducing it to a folder-and-caption version, I researched no-code gallery apps and abandoned the original prototype."
+  },
+  {
+    "experience_id": "EXP-003",
+    "date": "2026-03-19",
+    "text": "While building a nonessential habit-tracker, the OAuth setup became fiddly. I switched to exploring an exciting generative-AI feature, leaving the simple tracker unfinished."
+  },
+  {
+    "experience_id": "EXP-004",
+    "date": "2026-04-02",
+    "text": "My side-project recipe archive developed a dependency conflict. I removed image recognition, kept only CSV import, and completed the smaller version that afternoon."
+  },
+  {
+    "experience_id": "EXP-005",
+    "date": "2026-01-22",
+    "text": "After a reader replied that the first issue of my tiny newsletter was useful, I returned to it for five consecutive evenings and completed the next issue."
+  },
+  {
+    "experience_id": "EXP-006",
+    "date": "2026-02-17",
+    "text": "I promised in a community channel that I would show a working demo on Friday. The public date made my progress visible, and I kept working on the same prototype each day until the demo."
+  },
+  {
+    "experience_id": "EXP-007",
+    "date": "2026-04-11",
+    "text": "A test user sent a concrete reply about the budgeting spreadsheet. Seeing that someone had used it made me reopen the file, fix the confusing section, and finish the guide."
+  },
+  {
+    "experience_id": "EXP-008",
+    "date": "2026-01-30",
+    "text": "I planned to buy one moisturizer for 24 dollars. The shop said eight more dollars would unlock a discount, so I added a face mask and spent 35 dollars instead."
+  },
+  {
+    "experience_id": "EXP-009",
+    "date": "2026-03-02",
+    "text": "My shopping list contained only laundry detergent. A promotion showed that another 12 dollars would reach the coupon threshold, and I added two scented candles I had not planned to buy."
+  },
+  {
+    "experience_id": "EXP-010",
+    "date": "2026-04-20",
+    "text": "I needed two storage boxes, but the cart was just below free shipping. I added drawer organizers and increased the household-goods budget rather than paying the smaller shipping fee."
+  },
+  {
+    "experience_id": "EXP-011",
+    "date": "2026-02-09",
+    "text": "I cooked a vegetable soup from a familiar recipe and froze two portions for later in the week."
+  },
+  {
+    "experience_id": "EXP-012",
+    "date": "2026-03-11",
+    "text": "A delayed bus gave me time to finish an episode of a history podcast before arriving home."
+  },
+  {
+    "experience_id": "EXP-013",
+    "date": "2026-04-07",
+    "text": "I moved the small plant away from the heater and watered it after noticing the soil was dry."
+  },
+  {
+    "experience_id": "EXP-014",
+    "date": "2026-02-26",
+    "text": "A required work report failed to build because its official command had changed. I read the current documentation, used the necessary replacement tool, and delivered the report before the deadline."
+  },
+  {
+    "experience_id": "EXP-015",
+    "date": "2026-03-28",
+    "text": "While buying one replacement battery, I noticed the smoke alarm also needed fresh batteries. I bought the larger pack for immediate safety needs; there was no coupon, threshold, or free-shipping offer."
+  }
+]

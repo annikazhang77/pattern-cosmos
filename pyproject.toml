@@ -1,0 +1,18 @@
+[project]
+name = "pattern-agent-feasibility-spike"
+version = "0.1.0"
+description = "Deterministic feasibility test for a Vertex AI + Google ADK pattern curator"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "google-adk>=2.0.0,<3.0.0",
+  "google-cloud-firestore>=2.21.0,<3.0.0",
+  "python-multipart>=0.0.20,<1.0.0",
+  "uvicorn[standard]>=0.34.0,<1.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.setuptools]
+packages = ["pattern_agent"]

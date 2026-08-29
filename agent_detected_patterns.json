@@ -1,0 +1,58 @@
+[
+  {
+    "pattern_id": "pattern-side-project-friction-pivot",
+    "name": "Pivoting to new tools or features upon side-project friction",
+    "hypothesis": "When encountering technical friction or setup obstacles during personal side projects, the user switches focus to researching alternative tools or exploring new features, leaving the original project unfinished.",
+    "supporting_experience_ids": [
+      "EXP-001",
+      "EXP-002",
+      "EXP-003"
+    ],
+    "contradicting_experience_ids": [
+      "EXP-004"
+    ],
+    "evidence_count": 3,
+    "independent_dates": [
+      "2026-01-08",
+      "2026-02-03",
+      "2026-03-19"
+    ],
+    "status": "recurring"
+  },
+  {
+    "pattern_id": "pattern-external-accountability-completion",
+    "name": "External feedback and commitments driving project completion",
+    "hypothesis": "When receiving external feedback or making a public commitment regarding a project, the user maintains consistent follow-through and completes or refines the deliverable.",
+    "supporting_experience_ids": [
+      "EXP-005",
+      "EXP-006",
+      "EXP-007"
+    ],
+    "contradicting_experience_ids": [],
+    "evidence_count": 3,
+    "independent_dates": [
+      "2026-01-22",
+      "2026-02-17",
+      "2026-04-11"
+    ],
+    "status": "recurring"
+  },
+  {
+    "pattern_id": "pattern-promotional-threshold-upspending",
+    "name": "Adding unplanned items to meet promotional thresholds",
+    "hypothesis": "When an online shopping cart is near a discount or free-shipping threshold, the user adds unplanned items to qualify for the promotion, increasing total expenditure.",
+    "supporting_experience_ids": [
+      "EXP-008",
+      "EXP-009",
+      "EXP-010"
+    ],
+    "contradicting_experience_ids": [],
+    "evidence_count": 3,
+    "independent_dates": [
+      "2026-01-30",
+      "2026-03-02",
+      "2026-04-20"
+    ],
+    "status": "recurring"
+  }
+]

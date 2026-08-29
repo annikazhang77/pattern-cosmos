@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="960" viewBox="0 0 1600 960" role="img" aria-labelledby="title desc">
+  <title id="title">Pattern Cosmos architecture</title>
+  <desc id="desc">Dated text enters a React web app, reaches FastAPI on Cloud Run, is curated by Google ADK and Gemini on Vertex AI, deterministically linked to evidence, persisted in Firestore, and rendered as an interactive Cosmos.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#030711"/><stop offset="1" stop-color="#07131b"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#112631"/><stop offset="1" stop-color="#0b1821"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#8ed9e4"/></marker>
+    <style>
+      .title{font:700 46px Inter,Segoe UI,sans-serif;fill:#f2f8f8}.sub{font:400 21px Inter,Segoe UI,sans-serif;fill:#90a8b0}.label{font:650 25px Inter,Segoe UI,sans-serif;fill:#edf8f8}.small{font:400 18px Inter,Segoe UI,sans-serif;fill:#a8bbc1}.tiny{font:600 15px Inter,Segoe UI,sans-serif;fill:#75a1aa;letter-spacing:1.5px}.box{fill:url(#card);stroke:#31515b;stroke-width:2}.google{stroke:#78d4e4}.flow{fill:none;stroke:#8ed9e4;stroke-width:3;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="960" rx="32" fill="url(#bg)"/>
+  <circle cx="1330" cy="170" r="210" fill="#0a8792" opacity=".09" filter="url(#glow)"/><circle cx="260" cy="780" r="230" fill="#a43b68" opacity=".08" filter="url(#glow)"/>
+  <text x="90" y="90" class="title">Pattern Cosmos</text>
+  <text x="90" y="127" class="sub">Evidence-linked agent workflow · deployed on Google Cloud</text>
+  <rect x="90" y="210" width="300" height="150" rx="22" class="box"/>
+  <text x="120" y="250" class="tiny">INPUT</text><text x="120" y="294" class="label">Dated Markdown / TXT</text><text x="120" y="328" class="small">Explicit dates · original text · stable IDs</text>
+  <rect x="500" y="190" width="310" height="190" rx="22" class="box google"/>
+  <text x="530" y="230" class="tiny">CLOUD RUN</text><text x="530" y="274" class="label">React + FastAPI</text><text x="530" y="310" class="small">Parser · anonymous session</text><text x="530" y="340" class="small">Frozen photographic Cosmos UI</text>
+  <rect x="920" y="190" width="310" height="190" rx="22" class="box google"/>
+  <text x="950" y="230" class="tiny">GOOGLE ADK</text><text x="950" y="274" class="label">PatternCurator</text><text x="950" y="310" class="small">Tool choice · evidence citation</text><text x="950" y="340" class="small">new / reinforce / contradict / merge</text>
+  <rect x="1290" y="210" width="240" height="150" rx="22" class="box google"/>
+  <text x="1320" y="250" class="tiny">VERTEX AI</text><text x="1320" y="294" class="label">Gemini 3.7 Flash</text><text x="1320" y="328" class="small">Semantic decisions</text>
+  <path d="M390 285 H500" class="flow"/><path d="M810 285 H920" class="flow"/><path d="M1230 285 H1290" class="flow"/>
+  <rect x="500" y="510" width="390" height="190" rx="22" class="box"/>
+  <text x="530" y="550" class="tiny">DETERMINISTIC EVIDENCE LAYER</text><text x="530" y="594" class="label">Pattern lifecycle tools</text><text x="530" y="630" class="small">Evidence count · independent dates</text><text x="530" y="660" class="small">Contradiction retention · user-only Black Hole</text>
+  <rect x="1010" y="510" width="360" height="190" rx="22" class="box google"/>
+  <text x="1040" y="550" class="tiny">CLOUD FIRESTORE</text><text x="1040" y="594" class="label">Persistent state</text><text x="1040" y="630" class="small">Experiences · patterns · evidence links</text><text x="1040" y="660" class="small">Principles · agent run log</text>
+  <path d="M1075 380 C1075 445 780 430 720 510" class="flow"/><path d="M890 605 H1010" class="flow"/>
+  <rect x="220" y="770" width="1160" height="110" rx="22" fill="#0b1820" stroke="#28434c" stroke-width="2"/>
+  <text x="260" y="812" class="tiny">EVIDENCE LIFECYCLE</text><text x="260" y="852" class="label">Experience  →  possible hypothesis  →  repeated evidence  →  recurring pattern  →  user principle</text><path d="M695 700 V770" class="flow"/>
+</svg>

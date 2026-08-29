@@ -1,0 +1,17 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+web/node_modules
+web/dist
+web_state
+behavioral_data_spike
+real_data_spike
+_snapshots
+tmp
+review-pack
+*.png
+*.pdf
+.env*
+service-account*.json
+application_default_credentials.json

@@ -1,0 +1,1 @@
+"""Pattern Agent feasibility spike."""

@@ -1,0 +1,33 @@
+{
+  "name": "pattern-cosmos-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "tsc -b",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@react-three/postprocessing": "^3.1.1",
+    "d3-force": "^3.0.0",
+    "postprocessing": "^6.39.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^5.0.4",
+    "playwright-core": "^1.62.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  }
+}
