@@ -9,12 +9,14 @@ import type {
   CosmicEventState,
   DefaultFutureProjection,
   FutureChoicePosition,
+  OrbitState,
   Pattern,
 } from "./types";
 
 interface FutureChoiceDraft {
   patternId: string;
   alternativeId: string;
+  customResponse?: string;
   position: FutureChoicePosition;
 }
 
@@ -25,6 +27,7 @@ interface ThreeCosmosViewProps {
   futureChoice: FutureChoiceDraft | null;
   projections: Record<string, DefaultFutureProjection>;
   changedOrbits: Record<string, ChangedOrbit>;
+  orbitStates: Record<string, OrbitState>;
   escapeAnimationId: number;
   cosmicEvent: CosmicEventState | null;
   onMoveFutureChoice: (position: FutureChoicePosition) => void;
@@ -2523,6 +2526,7 @@ function Scene({
   futureChoice,
   projections,
   changedOrbits,
+  orbitStates,
   escapeAnimationId,
   cosmicEvent,
   onMoveFutureChoice,
@@ -2560,8 +2564,9 @@ function Scene({
             const isSelected = selectedPatternId === pattern.pattern_id;
             const eventForPattern = cosmicEvent?.patternId === pattern.pattern_id ? cosmicEvent : null;
             let trajectoryMode: TrajectoryMode = "hidden";
-            if (changedOrbits[pattern.pattern_id]) trajectoryMode = "changed";
-            else if (isSelected && projections[pattern.pattern_id]) trajectoryMode = "current";
+            const orbitState = orbitStates[pattern.pattern_id] ?? "hidden";
+            if (orbitState === "changed" && changedOrbits[pattern.pattern_id]) trajectoryMode = "changed";
+            else if (orbitState === "current" && isSelected && projections[pattern.pattern_id]) trajectoryMode = "current";
             if (eventForPattern?.kind === "BLACK_HOLE") trajectoryMode = "hidden";
             if (eventForPattern?.kind === "CHANGE_ORBIT") {
               trajectoryMode = eventForPattern.phase === "PREFRAME"
@@ -2617,6 +2622,7 @@ export function ThreeCosmosView({
   futureChoice,
   projections,
   changedOrbits,
+  orbitStates,
   escapeAnimationId,
   cosmicEvent,
   onMoveFutureChoice,
@@ -2644,6 +2650,7 @@ export function ThreeCosmosView({
           futureChoice={futureChoice}
           projections={projections}
           changedOrbits={changedOrbits}
+          orbitStates={orbitStates}
           escapeAnimationId={escapeAnimationId}
           cosmicEvent={cosmicEvent}
           onMoveFutureChoice={onMoveFutureChoice}

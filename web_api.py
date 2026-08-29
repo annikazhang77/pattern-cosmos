@@ -594,14 +594,24 @@ def confirm_changed_orbit(
     projection = session.trajectory_projections.get(pattern_id)
     if not projection:
         raise HTTPException(status_code=409, detail="See the default future first")
-    alternative = next(
-        (
-            row
-            for row in projection["alternatives"]
-            if row["alternative_id"] == payload.alternative_id
-        ),
-        None,
-    )
+    if payload.custom_response:
+        alternative = {
+            "alternative_id": "custom-response",
+            "response": payload.custom_response,
+            "what_changed": "You chose a different response at the same repeated trigger.",
+            "what_stayed_the_same": projection["repeated_trigger"],
+            "likely_short_term_effect": "This creates one observable deviation from the current path. The next outcome remains evidence to collect.",
+            "likely_long_term_compounding_effect": "Only repeating this choice across future triggers can establish a changed pattern.",
+        }
+    else:
+        alternative = next(
+            (
+                row
+                for row in projection["alternatives"]
+                if row["alternative_id"] == payload.alternative_id
+            ),
+            None,
+        )
     if not alternative:
         raise HTTPException(status_code=400, detail="Unknown alternative response")
     changed_orbit = {

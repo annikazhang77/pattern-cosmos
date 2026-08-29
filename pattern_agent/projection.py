@@ -33,4 +33,5 @@ class FutureChoicePosition(BaseModel):
 
 class ChangedOrbitInput(BaseModel):
     alternative_id: str = Field(min_length=3, max_length=48)
+    custom_response: str | None = Field(default=None, min_length=12, max_length=320)
     future_choice_position: FutureChoicePosition

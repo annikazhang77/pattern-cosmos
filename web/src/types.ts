@@ -84,8 +84,21 @@ export interface ChangedOrbit {
   confirmed_at: string;
 }
 
-export type InteractionMode = "READ_MODE" | "COSMIC_EVENT_MODE";
-export type FortuneStage = "HIDDEN" | "ONE_YEAR" | "THREE_YEARS";
+export type InteractionMode = "READ_MODE" | "ORACLE_SEQUENCE" | "COSMIC_EVENT_MODE";
+export type FortuneState = "unread" | "one_year" | "three_year";
+export type OrbitState = "hidden" | "current" | "changed";
+
+export interface OracleOrigin {
+  x: number;
+  y: number;
+  size: number;
+}
+
+export interface OracleSequenceState {
+  patternId: string;
+  phase: "GATHER" | "OPENING" | "MIST" | "REVEAL";
+  origin: OracleOrigin;
+}
 
 export interface CosmicEventState {
   kind: "BLACK_HOLE" | "CHANGE_ORBIT";

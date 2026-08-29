@@ -63,12 +63,14 @@ export const api = {
     patternId: string,
     alternativeId: string,
     futureChoicePosition: FutureChoicePosition,
+    customResponse?: string,
   ) => request<{ changed_orbit: ChangedOrbit; state: AppState }>(
     `/api/patterns/${patternId}/changed-orbit`,
     {
       method: "POST",
       body: JSON.stringify({
         alternative_id: alternativeId,
+        custom_response: customResponse,
         future_choice_position: futureChoicePosition,
       }),
     },

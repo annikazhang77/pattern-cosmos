@@ -1,12 +1,13 @@
 import { ArrowRight, CircleNotch, Sparkle, X } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   AlternativeResponse,
   ChangedOrbit,
   DefaultFutureProjection,
   Experience,
-  FortuneStage,
+  FortuneState,
   FutureChoicePosition,
+  OracleOrigin,
   Pattern,
   VisualState,
 } from "./types";
@@ -23,14 +24,16 @@ interface PatternDrawerProps {
   futureChoice: {
     patternId: string;
     alternativeId: string;
+    customResponse?: string;
     position: FutureChoicePosition;
   } | null;
-  onSeeDefaultFuture: () => void;
-  fortuneStage: FortuneStage;
+  onSeeDefaultFuture: (origin: OracleOrigin) => void;
+  fortuneState: FortuneState;
   onRevealFartherFuture: () => void;
   onChooseAlternative: (alternative: AlternativeResponse) => void;
+  onChooseCustomResponse: (response: string) => void;
   onConfirmChangedOrbit: () => void;
-  cosmicEventMode: boolean;
+  immersiveEventMode: boolean;
 }
 
 const visualOptions: Array<{ value: VisualState; label: string; hint: string }> = [
@@ -91,16 +94,20 @@ export function PatternDrawer({
   changedOrbit,
   futureChoice,
   onSeeDefaultFuture,
-  fortuneStage,
+  fortuneState,
   onRevealFartherFuture,
   onChooseAlternative,
+  onChooseCustomResponse,
   onConfirmChangedOrbit,
-  cosmicEventMode,
+  immersiveEventMode,
 }: PatternDrawerProps) {
   const [showAlternatives, setShowAlternatives] = useState(false);
+  const [customResponse, setCustomResponse] = useState("");
+  const orbRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     setShowAlternatives(false);
+    setCustomResponse("");
   }, [pattern?.pattern_id]);
 
   useEffect(() => {
@@ -124,11 +131,11 @@ export function PatternDrawer({
 
   return (
     <aside
-      className={`pattern-reading${cosmicEventMode ? " is-event-hidden" : ""}`}
+      className={`pattern-reading${immersiveEventMode ? " is-event-hidden" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={`Inspect ${pattern.name}`}
-      aria-hidden={cosmicEventMode}
+      aria-hidden={immersiveEventMode}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -184,24 +191,27 @@ export function PatternDrawer({
         </section>
 
         <section className="orbit-section">
-          {fortuneStage === "HIDDEN" ? (
+          {fortuneState === "unread" ? (
             <button
               className="oracle-action"
-              onClick={(event) => {
-                event.currentTarget.classList.add("is-opening");
-                onSeeDefaultFuture();
+              onClick={() => {
+                const bounds = orbRef.current?.getBoundingClientRect();
+                onSeeDefaultFuture(bounds ? {
+                  x: bounds.left + bounds.width / 2,
+                  y: bounds.top + bounds.height / 2,
+                  size: bounds.width,
+                } : { x: window.innerWidth * 0.64, y: window.innerHeight * 0.62, size: 92 });
               }}
               disabled={busy || pattern.evidence_count < 3}
             >
-              <span className="oracle-orb" aria-hidden="true">
+              <span ref={orbRef} className="oracle-orb" aria-hidden="true">
                 <span className="oracle-orb__gas" />
                 <span className="oracle-orb__glint" />
               </span>
               <span className="oracle-copy">
-                <strong>{busy ? "Reading the current orbit" : "Read the orbit"}</strong>
+                <strong>Read the orbit</strong>
                 <small>See where this pattern leads if nothing changes.</small>
               </span>
-              {busy && <CircleNotch className="spin" size={19} />}
             </button>
           ) : projection ? (
             <div className="default-future">
@@ -218,14 +228,14 @@ export function PatternDrawer({
 
               <p className="orbit-caveat">{projection.uncertainty_evidence_caveat}</p>
 
-              {fortuneStage === "ONE_YEAR" && (
+              {fortuneState === "one_year" && (
                 <button className="farther-orbit-action" type="button" onClick={onRevealFartherFuture}>
                   <span>Look farther along this orbit</span>
                   <ArrowRight size={17} />
                 </button>
               )}
 
-              {fortuneStage === "THREE_YEARS" && (
+              {fortuneState === "three_year" && (
                 <div className="trajectory-details is-revealed">
                   <h4>Farther along this orbit</h4>
                 <div className="trajectory-moment">
@@ -236,7 +246,7 @@ export function PatternDrawer({
                 </div>
               )}
 
-              {fortuneStage === "THREE_YEARS" && !showAlternatives && !changedOrbit && (
+              {fortuneState === "three_year" && !showAlternatives && !changedOrbit && (
                 <button className="change-orbit-action" onClick={() => setShowAlternatives(true)}>
                   <Sparkle size={17} weight="fill" />
                   <span>{orbitAction}</span>
@@ -256,11 +266,24 @@ export function PatternDrawer({
                       {alternative.response}
                     </button>
                   ))}
+                  <label className="custom-response-field">
+                    <span>Or write your own small response</span>
+                    <textarea
+                      value={customResponse}
+                      rows={3}
+                      placeholder="At the same trigger, I will..."
+                      onChange={(event) => {
+                        const response = event.target.value;
+                        setCustomResponse(response);
+                        if (response.trim().length >= 12) onChooseCustomResponse(response.trim());
+                      }}
+                    />
+                  </label>
                   {futureChoice && (
                     <div className="future-choice-confirm">
                       <p>Move the Future Choice Star, then confirm the direction you want to test.</p>
                       <button onClick={onConfirmChangedOrbit} disabled={busy}>
-                        {busy ? <CircleNotch className="spin" size={16} /> : <Sparkle size={16} weight="fill" />}
+                        <Sparkle size={16} weight="fill" />
                         Set this new orbit
                       </button>
                     </div>
@@ -268,8 +291,12 @@ export function PatternDrawer({
                 </div>
               )}
 
-              {changedOrbit && (
+              {changedOrbit && fortuneState === "three_year" && (
                 <div className="changed-orbit-result">
+                  <header>
+                    <span>Changed Orbit</span>
+                    <h4>A conscious choice changed the visible path.</h4>
+                  </header>
                   <div className="orbit-comparison orbit-comparison--current">
                     <span>Current Orbit</span>
                     <p>{changedOrbit.current_orbit.response}</p>
