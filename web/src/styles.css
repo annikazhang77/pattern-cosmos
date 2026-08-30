@@ -505,7 +505,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .experience-composer.is-genesis .composer-label > span {
   color: rgba(236, 244, 243, 0.92);
   font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 400;
   line-height: 1.25;
 }
@@ -632,9 +632,9 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   transform: none;
 }
 .composer-label { align-self: center; display: grid; gap: 4px; }
-.composer-label > span { color: rgba(225, 236, 237, 0.74); font-size: 10px; font-weight: 540; }
+.composer-label > span { color: rgba(225, 236, 237, 0.82); font-size: 16px; font-weight: 540; }
 .composer-label small { display: none; }
-.experience-composer label { display: grid; gap: 6px; color: rgba(145, 163, 167, 0.62); font-size: 8px; }
+.experience-composer label { display: grid; gap: 6px; color: rgba(170, 188, 191, 0.72); font-size: 11px; }
 .experience-composer input,
 .experience-composer textarea {
   width: 100%;
@@ -643,7 +643,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   border-radius: 0;
   background: transparent;
   color: #edf4f4;
-  font-size: 10px;
+  font-size: 17px;
 }
 .experience-composer input { height: 38px; padding: 0 0 6px; color-scheme: dark; }
 .experience-composer textarea { min-height: 38px; max-height: 86px; resize: vertical; padding: 10px 0 7px; line-height: 1.45; }
@@ -669,10 +669,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   border-left: 1px solid rgba(191, 239, 243, 0.44);
   background: linear-gradient(90deg, rgba(4, 10, 16, 0.95), rgba(4, 10, 16, 0));
 }
-.routing-result > span { color: rgba(191, 239, 243, 0.74); font-family: "Cascadia Mono", monospace; font-size: 8px; }
-.routing-result strong { display: block; margin-top: 5px; font-size: 12px; }
-.routing-result p { margin: 7px 0; color: rgba(185, 202, 205, 0.72); font-size: 9px; line-height: 1.5; }
-.routing-result small { color: rgba(127, 145, 149, 0.62); font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.routing-result > span { color: rgba(191, 239, 243, 0.78); font-family: "Cascadia Mono", monospace; font-size: 11px; }
+.routing-result strong { display: block; margin-top: 7px; font-size: 18px; font-weight: 560; }
+.routing-result p { margin: 9px 0; color: rgba(210, 222, 223, 0.82); font-size: 16px; line-height: 1.58; }
+.routing-result small { color: rgba(160, 180, 183, 0.7); font-family: "Cascadia Mono", monospace; font-size: 11px; }
 
 .error-banner {
   position: fixed;
@@ -761,7 +761,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   letter-spacing: -0.045em;
   text-wrap: balance;
 }
-.cosmos-empty p { max-width: 490px; margin: 24px 0 27px; color: rgba(214, 226, 227, 0.74); font-size: 16px; line-height: 1.72; }
+.cosmos-empty p { max-width: 520px; margin: 24px 0 27px; color: rgba(222, 232, 233, 0.8); font-size: 18px; line-height: 1.62; }
 .entry-action {
   display: inline-flex;
   align-items: center;
@@ -769,7 +769,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   padding: 9px 2px;
   background: transparent;
   color: rgba(230, 239, 239, 0.82);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 560;
   letter-spacing: 0.005em;
   transition: color 240ms ease, transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -833,11 +833,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .visual-state-control { width: fit-content; display: flex; gap: 28px; margin: 20px 0 0; border: 0; }
 .pattern-reading .visual-state-control button { padding: 0 0 10px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: rgba(196, 209, 210, 0.54); }
 .pattern-reading .visual-state-control button.is-active { border-bottom-color: rgba(204, 231, 231, 0.72); color: rgba(244, 248, 247, 0.96); }
-.pattern-reading .visual-state-control strong { font-size: 12px; font-weight: 620; }
-.pattern-reading .visual-state-control span { margin-top: 5px; font-size: 10px; }
+.pattern-reading .visual-state-control strong { font-size: 15px; font-weight: 620; }
+.pattern-reading .visual-state-control span { margin-top: 6px; font-size: 13px; line-height: 1.45; }
 .reading-section { max-width: 720px; margin-top: 64px; }
 .reading-section h3,
-.principle-section h3 { margin: 0 0 26px; color: rgba(238, 243, 242, 0.9); font-size: 15px; font-weight: 630; letter-spacing: 0; }
+.principle-section h3 { margin: 0 0 26px; color: rgba(238, 243, 242, 0.9); font-size: 17px; font-weight: 630; letter-spacing: 0; }
 .reading-intro { margin: 0 0 43px; color: rgba(233, 239, 238, 0.9); font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; font-size: 24px; font-style: italic; line-height: 1.52; }
 .pattern-reading .evidence-stack { display: grid; gap: 5px; }
 .pattern-reading .evidence-row { padding: 0; border: 0; border-bottom: 1px solid rgba(186, 222, 223, 0.12); }
@@ -861,7 +861,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .meaning-section > p { margin: 0; color: rgba(222, 231, 230, 0.84); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; font-style: italic; }
 .emerging-pattern-gate { display: grid; max-width: 590px; gap: 9px; }
 .emerging-pattern-gate strong { color: rgba(232, 239, 238, 0.9); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; font-style: italic; font-weight: 400; }
-.emerging-pattern-gate span { color: rgba(190, 205, 205, 0.7); font-size: 15px; line-height: 1.65; }
+.emerging-pattern-gate span { color: rgba(207, 218, 218, 0.78); font-size: 17px; line-height: 1.62; }
 
 .pattern-reading .orbit-section { max-width: 720px; margin-top: 88px; padding: 0; border: 0; }
 .oracle-action { width: 100%; display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; align-items: center; gap: 27px; padding: 26px 0; border-top: 1px solid rgba(196, 222, 223, 0.17); border-bottom: 1px solid rgba(196, 222, 223, 0.11); background: transparent; color: rgba(239, 244, 243, 0.92); text-align: left; }
@@ -891,7 +891,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .trajectory-moment { padding-left: 22px; border-left: 1px solid rgba(193, 225, 225, 0.32); }
 .pattern-reading .trajectory-moment > span { color: rgba(185, 204, 204, 0.72); font-size: 11px; font-weight: 610; letter-spacing: 0.04em; }
 .pattern-reading .trajectory-moment p { margin: 12px 0 0; color: rgba(243, 246, 245, 0.95); font-size: 20px; line-height: 1.75; }
-.pattern-reading .orbit-caveat { margin: 35px 0 0; color: rgba(194, 208, 208, 0.72); font-size: 15px; line-height: 1.72; }
+.pattern-reading .orbit-caveat { margin: 35px 0 0; color: rgba(205, 218, 218, 0.78); font-size: 17px; line-height: 1.65; }
 .pattern-reading .farther-orbit-action { width: 100%; display: flex; align-items: center; justify-content: space-between; margin-top: 36px; padding: 20px 0; border-top: 1px solid rgba(194, 220, 221, 0.18); border-bottom: 1px solid rgba(194, 220, 221, 0.1); background: transparent; color: rgba(228, 237, 236, 0.88); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; text-align: left; }
 .pattern-reading .farther-orbit-action:hover { color: #fbfdfc; }
 .pattern-reading .farther-orbit-action svg { transition: transform 220ms ease; }
@@ -902,12 +902,12 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .compounding-copy { margin: 25px 0 0 23px; color: rgba(217, 226, 225, 0.82); font-size: 17px; line-height: 1.72; }
 .pattern-reading .change-orbit-action { width: 100%; margin-top: 48px; padding: 22px 0; border-top: 1px solid rgba(229, 198, 114, 0.24); border-bottom: 1px solid rgba(229, 198, 114, 0.12); color: rgba(247, 227, 171, 0.94); font-size: 16px; }
 .pattern-reading .alternative-responses { margin-top: 43px; }
-.pattern-reading .alternative-responses > p { margin-bottom: 20px; color: rgba(216, 225, 224, 0.74); font-size: 16px; }
+.pattern-reading .alternative-responses > p { margin-bottom: 20px; color: rgba(221, 230, 229, 0.8); font-size: 17px; line-height: 1.58; }
 .pattern-reading .alternative-responses > button { padding: 18px 0 18px 22px; color: rgba(229, 235, 234, 0.82); font-size: 18px; line-height: 1.64; }
 .pattern-reading .alternative-responses > button:hover,
 .pattern-reading .alternative-responses > button.is-active { padding-left: 28px; color: rgba(255, 245, 212, 0.98); }
 .pattern-reading .future-choice-confirm { margin-top: 28px; padding-top: 24px; }
-.pattern-reading .future-choice-confirm > p { color: rgba(214, 222, 220, 0.75); font-size: 15px; }
+.pattern-reading .future-choice-confirm > p { color: rgba(220, 228, 226, 0.8); font-size: 17px; line-height: 1.58; }
 .pattern-reading .future-choice-confirm > button { color: rgba(250, 231, 177, 0.96); font-size: 15px; }
 .pattern-reading .changed-orbit-result { margin-top: 49px; }
 .pattern-reading .orbit-comparison { padding-left: 22px; border-left: 1px solid rgba(194, 210, 211, 0.27); }
@@ -920,12 +920,12 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .pattern-reading .changed-orbit-result dt { color: rgba(190, 204, 204, 0.67); font-size: 13px; }
 .pattern-reading .changed-orbit-result dd { margin-top: 8px; color: rgba(230, 236, 235, 0.9); font-size: 17px; line-height: 1.68; }
 .pattern-reading .principle-section { max-width: 720px; margin: 91px 0 0; padding-top: 38px; border-top: 1px solid rgba(194, 220, 221, 0.14); }
-.pattern-reading .principle-section > div p { color: rgba(198, 212, 211, 0.7); font-size: 15px; }
+.pattern-reading .principle-section > div p { color: rgba(208, 221, 220, 0.78); font-size: 17px; line-height: 1.6; }
 .pattern-reading .principle-section blockquote { color: rgba(242, 245, 244, 0.94); font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; font-size: 23px; line-height: 1.62; }
 
 .evidence-peek { width: 270px; padding: 10px 0; color: rgba(245, 248, 247, 0.96); text-align: left; text-shadow: 0 2px 16px #02050a, 0 0 34px #02050a; }
-.evidence-peek strong { display: block; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 16px; font-weight: 400; line-height: 1.25; }
-.evidence-peek span { display: block; margin-top: 4px; color: rgba(198, 216, 216, 0.72); font-size: 10px; }
+.evidence-peek strong { display: block; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 18px; font-weight: 400; line-height: 1.3; }
+.evidence-peek span { display: block; margin-top: 5px; color: rgba(207, 224, 224, 0.8); font-size: 14px; line-height: 1.45; }
 
 @media (max-width: 1100px) {
   .pattern-reading { background: rgba(2, 5, 10, 0.76); backdrop-filter: brightness(0.46) blur(1px); }
@@ -934,11 +934,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 @media (max-width: 720px) {
   .cosmos-empty { align-items: flex-start; padding: 0 28px; }
   .cosmos-empty h1 { font-size: clamp(45px, 14vw, 64px); }
-  .cosmos-empty p { font-size: 15px; }
+  .cosmos-empty p { font-size: 17px; }
   .pattern-reading__column { width: calc(100vw - 40px); padding: 96px 0 110px; }
   .reading-close { top: 18px; right: 18px; }
   .reading-heading h2 { font-size: 43px; }
-  .reading-hypothesis { font-size: 18px; }
+  .reading-hypothesis { font-size: 19px; }
   .pattern-reading .evidence-row p,
   .pattern-reading .trajectory-moment p,
   .pattern-reading .changed-orbit-result p { font-size: 18px; }
@@ -1100,15 +1100,15 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
   max-width: 670px;
 }
 .reasoning-disclosure { margin-top: 22px; color: rgba(214, 225, 224, 0.76); }
-.reasoning-disclosure summary { width: fit-content; cursor: pointer; list-style: none; color: rgba(193, 216, 216, 0.78); font-size: 14px; line-height: 1.4; transition: color 180ms ease; }
+.reasoning-disclosure summary { width: fit-content; cursor: pointer; list-style: none; color: rgba(204, 225, 225, 0.82); font-size: 15px; line-height: 1.45; transition: color 180ms ease; }
 .reasoning-disclosure summary::-webkit-details-marker { display: none; }
 .reasoning-disclosure summary::after { content: "+"; display: inline-block; margin-left: 10px; color: rgba(223, 237, 236, 0.55); font-family: Georgia, serif; font-size: 17px; }
 .reasoning-disclosure[open] summary::after { content: "−"; }
 .reasoning-disclosure summary:hover { color: rgba(244, 249, 248, 0.96); }
 .reasoning-disclosure > div { margin-top: 20px; padding: 20px 0 3px 22px; border-left: 1px solid rgba(190, 216, 216, 0.16); animation: reasoning-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .reasoning-disclosure > div > p:first-child { margin: 0; color: rgba(226, 234, 233, 0.88); font-size: 17px; line-height: 1.72; }
-.reasoning-disclosure .orbit-caveat { margin-top: 22px; font-size: 14px; }
-.reasoning-disclosure .compounding-copy { margin: 22px 0 0; font-size: 16px; }
+.reasoning-disclosure .orbit-caveat { margin-top: 22px; font-size: 17px; }
+.reasoning-disclosure .compounding-copy { margin: 22px 0 0; font-size: 17px; }
 .reasoning-disclosure--changed { margin-top: 29px; }
 .reasoning-disclosure--changed > div { padding-left: 0; border-left: 0; }
 @keyframes reasoning-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }

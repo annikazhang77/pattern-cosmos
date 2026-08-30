@@ -317,6 +317,11 @@ class PatternState:
         cited_existing_evidence_ids: list[str],
         new_pattern_name: str,
         new_pattern_hypothesis: str,
+        trigger: str,
+        regulatory_function: str,
+        response_behavior: str,
+        immediate_outcome: str,
+        conscious_intervention: str,
     ) -> dict[str, Any]:
         """Record one exclusive routing decision and apply its deterministic state change."""
         with self._lock:
@@ -330,6 +335,25 @@ class PatternState:
                     raise ValueError(f"Cited evidence must be an older known ID: {cited_id}")
             if self.probe_result_exists(experience_id):
                 raise ValueError(f"Probe already routed: {experience_id}")
+
+            mechanism = {
+                "trigger": trigger.strip(),
+                "regulatory_function": regulatory_function.strip(),
+                "response_behavior": response_behavior.strip(),
+                "immediate_outcome": immediate_outcome.strip(),
+                "conscious_intervention": conscious_intervention.strip(),
+            }
+            required_mechanism_fields = (
+                "trigger",
+                "regulatory_function",
+                "response_behavior",
+                "immediate_outcome",
+            )
+            if any(not mechanism[field] for field in required_mechanism_fields):
+                raise ValueError(
+                    "Routing requires trigger, regulatory function, response behavior, and immediate outcome"
+                )
+            self.experiences[experience_id]["mechanism"] = deepcopy(mechanism)
 
             if action == "NEW_PATTERN":
                 if target_pattern_id:
@@ -347,6 +371,10 @@ class PatternState:
             elif action == "REINFORCE_EXISTING":
                 target_pattern_id = self._pattern(target_pattern_id)["pattern_id"]
                 self.add_supporting_evidence(target_pattern_id, experience_id, reason)
+                pattern = self._pattern(target_pattern_id)
+                if new_pattern_name.strip() and new_pattern_hypothesis.strip():
+                    pattern["name"] = new_pattern_name.strip()
+                    pattern["hypothesis"] = new_pattern_hypothesis.strip()
                 state_target_pattern_id = target_pattern_id
             elif action == "CONTRADICT_EXISTING":
                 target_pattern_id = self._pattern(target_pattern_id)["pattern_id"]
@@ -365,6 +393,7 @@ class PatternState:
                 "experience_id": experience_id,
                 "reason": reason.strip(),
                 "cited_existing_evidence_ids": list(dict.fromkeys(cited_existing_evidence_ids)),
+                "mechanism": deepcopy(mechanism),
             }
             self.state["probe_results"].append(row)
             self._record(
@@ -377,6 +406,7 @@ class PatternState:
                     "cited_existing_evidence_ids": cited_existing_evidence_ids,
                     "new_pattern_name": new_pattern_name,
                     "new_pattern_hypothesis": new_pattern_hypothesis,
+                    **mechanism,
                 },
                 {"ok": True, **row},
             )

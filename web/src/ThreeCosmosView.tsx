@@ -1651,6 +1651,53 @@ function useRadialGlowTexture() {
   return texture;
 }
 
+function useStellarGlowTexture() {
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.clearRect(0, 0, 128, 128);
+    context.globalCompositeOperation = "lighter";
+
+    const halo = context.createRadialGradient(61, 60, 0, 64, 64, 52);
+    halo.addColorStop(0, "rgba(255,255,255,1)");
+    halo.addColorStop(0.055, "rgba(255,255,255,0.96)");
+    halo.addColorStop(0.15, "rgba(226,246,255,0.44)");
+    halo.addColorStop(0.42, "rgba(173,217,235,0.11)");
+    halo.addColorStop(1, "rgba(95,151,176,0)");
+    context.fillStyle = halo;
+    context.fillRect(0, 0, 128, 128);
+
+    const horizontal = context.createLinearGradient(12, 64, 116, 64);
+    horizontal.addColorStop(0, "rgba(255,255,255,0)");
+    horizontal.addColorStop(0.43, "rgba(221,245,255,0.04)");
+    horizontal.addColorStop(0.5, "rgba(255,255,255,0.72)");
+    horizontal.addColorStop(0.57, "rgba(221,245,255,0.04)");
+    horizontal.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = horizontal;
+    context.fillRect(12, 63.35, 104, 1.3);
+
+    const vertical = context.createLinearGradient(64, 24, 64, 104);
+    vertical.addColorStop(0, "rgba(255,255,255,0)");
+    vertical.addColorStop(0.44, "rgba(225,246,255,0.035)");
+    vertical.addColorStop(0.5, "rgba(255,255,255,0.46)");
+    vertical.addColorStop(0.56, "rgba(225,246,255,0.035)");
+    vertical.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = vertical;
+    context.fillRect(63.45, 24, 1.1, 80);
+
+    const nextTexture = new THREE.CanvasTexture(canvas);
+    nextTexture.colorSpace = THREE.SRGBColorSpace;
+    nextTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    nextTexture.magFilter = THREE.LinearFilter;
+    return nextTexture;
+  }, []);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  return texture;
+}
+
 function useProtoNebulaTexture() {
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -1727,7 +1774,9 @@ function GenesisBirthStar({ birth }: { birth: GenesisBirth }) {
   const groupRef = useRef<THREE.Group>(null);
   const coreRef = useRef<THREE.MeshBasicMaterial>(null);
   const haloRef = useRef<THREE.SpriteMaterial>(null);
-  const glowTexture = useRadialGlowTexture();
+  const flareRef = useRef<THREE.SpriteMaterial>(null);
+  const glowTexture = useStellarGlowTexture();
+  const temperature = ["#e7f4ff", "#fff8e8", "#d9edff"][birth.sequence % 3];
   const position = useMemo<[number, number, number]>(() => [
     -0.55 + (birth.sequence % 3) * 0.48,
     0.06 + Math.sin(birth.sequence * 2.1) * 0.28,
@@ -1741,26 +1790,131 @@ function GenesisBirthStar({ birth }: { birth: GenesisBirth }) {
     groupRef.current.scale.setScalar(scale);
     if (coreRef.current) coreRef.current.opacity = THREE.MathUtils.damp(coreRef.current.opacity, birth.phase === "settling" ? 0.2 : 1, 3, delta);
     if (haloRef.current) haloRef.current.opacity = THREE.MathUtils.damp(haloRef.current.opacity, birth.phase === "settling" ? 0.04 : 0.72, 3, delta);
+    if (flareRef.current) {
+      flareRef.current.opacity = THREE.MathUtils.damp(
+        flareRef.current.opacity,
+        birth.phase === "birthing" ? 0.52 : 0.06,
+        birth.phase === "birthing" ? 4.4 : 2.8,
+        delta,
+      );
+      flareRef.current.rotation = state.clock.elapsedTime * 0.045 + birth.sequence * 0.7;
+    }
   });
   return (
     <group ref={groupRef} position={position} scale={0.04}>
       <mesh>
-        <sphereGeometry args={[0.055, 16, 12]} />
-        <meshBasicMaterial ref={coreRef} color="#f8fffd" transparent toneMapped={false} />
+        <sphereGeometry args={[0.04, 16, 12]} />
+        <meshBasicMaterial ref={coreRef} color={temperature} transparent toneMapped={false} />
       </mesh>
-      <sprite scale={[0.82, 0.82, 1]}>
-        <spriteMaterial ref={haloRef} map={glowTexture} color="#a9eff1" transparent opacity={0.72} blending={THREE.AdditiveBlending} depthWrite={false} />
+      <mesh>
+        <sphereGeometry args={[0.018, 12, 10]} />
+        <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </mesh>
+      <sprite scale={[0.66, 0.58, 1]}>
+        <spriteMaterial ref={haloRef} map={glowTexture} color={temperature} transparent opacity={0.72} blending={THREE.AdditiveBlending} depthWrite={false} />
       </sprite>
-      <mesh rotation={[0, 0, Math.PI / 4]}>
-        <ringGeometry args={[0.1, 0.108, 48]} />
-        <meshBasicMaterial color="#d8fbf7" transparent opacity={birth.phase === "birthing" ? 0.44 : 0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
+      <sprite scale={[1.08, 0.92, 1]}>
+        <spriteMaterial ref={flareRef} map={glowTexture} color={temperature} transparent opacity={0.52} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </sprite>
     </group>
   );
 }
 
 function GenesisBirthLayer({ births }: { births: GenesisBirth[] }) {
   return <group>{births.map((birth) => <GenesisBirthStar key={birth.birth_id} birth={birth} />)}</group>;
+}
+
+function ExperienceStarGlyph({
+  id,
+  position,
+  contradiction,
+  selected,
+  dimmed,
+  patternName,
+  onSelect,
+  glowTexture,
+}: {
+  id: string;
+  position: THREE.Vector3;
+  contradiction: boolean;
+  selected: boolean;
+  dimmed: boolean;
+  patternName: string;
+  onSelect: () => void;
+  glowTexture: THREE.Texture | null;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const coreRef = useRef<THREE.MeshBasicMaterial>(null);
+  const haloRef = useRef<THREE.SpriteMaterial>(null);
+  const [hovered, setHovered] = useState(false);
+  const signature = useMemo(() => {
+    const seed = hashString(id);
+    const colors = ["#e8f5ff", "#fff6df", "#dcecff", "#f5fbff"];
+    return {
+      color: contradiction ? "#e69aa5" : colors[seed % colors.length],
+      brightness: 0.9 + ((seed >> 4) % 18) / 100,
+      phase: ((seed >> 7) % 100) / 13,
+      frequency: 0.62 + ((seed >> 11) % 28) / 100,
+      rotation: ((seed >> 15) % 628) / 100,
+      haloScale: 0.2 + ((seed >> 18) % 7) / 100,
+    };
+  }, [contradiction, id]);
+  useFrame((state) => {
+    const twinkle = 0.96 + Math.sin(state.clock.elapsedTime * signature.frequency + signature.phase) * 0.035;
+    if (groupRef.current) groupRef.current.scale.setScalar(twinkle);
+    if (coreRef.current) coreRef.current.opacity = (dimmed ? 0.12 : signature.brightness) * twinkle;
+    if (haloRef.current) haloRef.current.opacity = (contradiction ? 0.34 : 0.29) * twinkle * (dimmed ? 0.08 : 1);
+  });
+  return (
+    <group ref={groupRef} position={position}>
+      <mesh
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+        onPointerOver={(event) => {
+          event.stopPropagation();
+          setHovered(true);
+          document.body.style.cursor = "pointer";
+        }}
+        onPointerOut={() => {
+          setHovered(false);
+          document.body.style.cursor = "default";
+        }}
+      >
+        <sphereGeometry args={[0.12, 10, 10]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[contradiction ? 0.032 : 0.026, 14, 12]} />
+        <meshBasicMaterial ref={coreRef} color={signature.color} transparent opacity={1} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.011, 10, 8]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={dimmed ? 0.1 : 0.96} toneMapped={false} />
+      </mesh>
+      <sprite scale={[signature.haloScale * (selected ? 1.34 : 1.06), signature.haloScale * (selected ? 1.12 : 0.9), 1]}>
+        <spriteMaterial
+          ref={haloRef}
+          map={glowTexture}
+          color={signature.color}
+          rotation={signature.rotation}
+          transparent
+          opacity={0.3}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </sprite>
+      {hovered && !selected && (
+        <Html position={[0.08, 0.12, 0]} style={{ pointerEvents: "none" }}>
+          <div className="evidence-peek">
+            <strong>{patternName}</strong>
+            <span>{contradiction ? "Contradicts this pattern" : "Supports this pattern"}</span>
+          </div>
+        </Html>
+      )}
+    </group>
+  );
 }
 
 function ExperienceStars({
@@ -1779,12 +1933,11 @@ function ExperienceStars({
   onSelect: () => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
-  const [hoveredEvidenceId, setHoveredEvidenceId] = useState<string | null>(null);
   const stars = useMemo(
     () => createExperiencePositions(pattern, volumetric),
     [pattern, volumetric],
   );
-  const glowTexture = useRadialGlowTexture();
+  const glowTexture = useStellarGlowTexture();
   useFrame((_, delta) => {
     if (!groupRef.current) return;
     const target = collapsed ? 0.78 : 1;
@@ -1795,53 +1948,17 @@ function ExperienceStars({
   return (
     <group ref={groupRef}>
       {stars.map((star) => (
-        <group key={star.id} position={star.position}>
-          <mesh
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelect();
-            }}
-            onPointerOver={(event) => {
-              event.stopPropagation();
-              setHoveredEvidenceId(star.id);
-              document.body.style.cursor = "pointer";
-            }}
-            onPointerOut={() => {
-              setHoveredEvidenceId(null);
-              document.body.style.cursor = "default";
-            }}
-          >
-            <sphereGeometry args={[0.12, 10, 10]} />
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
-          </mesh>
-          <mesh>
-            <sphereGeometry args={[star.contradiction ? 0.038 : 0.03, 10, 10]} />
-            <meshBasicMaterial
-              color={star.contradiction ? "#e0929d" : "#eef8f5"}
-              transparent
-              opacity={dimmed ? 0.12 : 1}
-              toneMapped={false}
-            />
-          </mesh>
-          <sprite scale={[selected ? 0.28 : 0.19, selected ? 0.28 : 0.19, 1]}>
-            <spriteMaterial
-              map={glowTexture}
-              color={star.contradiction ? "#c77482" : "#b8e8df"}
-              transparent
-              opacity={(star.contradiction ? 0.4 : 0.32) * (dimmed ? 0.08 : 1)}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </sprite>
-          {hoveredEvidenceId === star.id && !selected && (
-            <Html position={[0.08, 0.12, 0]} style={{ pointerEvents: "none" }}>
-              <div className="evidence-peek">
-                <strong>{pattern.name}</strong>
-                <span>{star.contradiction ? "Contradicts this pattern" : "Supports this pattern"}</span>
-              </div>
-            </Html>
-          )}
-        </group>
+        <ExperienceStarGlyph
+          key={star.id}
+          id={star.id}
+          position={star.position}
+          contradiction={star.contradiction}
+          selected={selected}
+          dimmed={dimmed}
+          patternName={pattern.name}
+          onSelect={onSelect}
+          glowTexture={glowTexture}
+        />
       ))}
     </group>
   );

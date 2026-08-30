@@ -8,6 +8,15 @@ export interface Experience {
   date: string;
   text: string;
   original_text?: string;
+  mechanism?: ExperienceMechanism;
+}
+
+export interface ExperienceMechanism {
+  trigger: string;
+  regulatory_function: string;
+  response_behavior: string;
+  immediate_outcome: string;
+  conscious_intervention: string;
 }
 
 export interface GenesisBirth {
@@ -41,6 +50,7 @@ export interface RoutingResult {
   experience_id: string;
   reason: string;
   cited_existing_evidence_ids: string[];
+  mechanism: ExperienceMechanism;
   model: string;
   model_calls: number;
 }

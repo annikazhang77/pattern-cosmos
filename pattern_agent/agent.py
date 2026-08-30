@@ -51,11 +51,20 @@ def route_new_experience(
     cited_existing_evidence_ids: list[str],
     new_pattern_name: str,
     new_pattern_hypothesis: str,
+    trigger: str,
+    regulatory_function: str,
+    response_behavior: str,
+    immediate_outcome: str,
+    conscious_intervention: str,
 ) -> dict:
     """Route one probe as NEW_PATTERN, REINFORCE_EXISTING, CONTRADICT_EXISTING, or PROPOSE_MERGE.
 
-    target_pattern_id is required except for NEW_PATTERN. For NEW_PATTERN, supply a concise
-    new_pattern_name and cautious new_pattern_hypothesis. Cite only old base experience IDs.
+    First normalize the experience into trigger, regulatory function, response behavior,
+    immediate outcome, and any conscious intervention. target_pattern_id is required except
+    for NEW_PATTERN. For NEW_PATTERN, supply a concise natural-language mechanism-level name
+    in the same language as the experience, plus a cautious hypothesis. For REINFORCE_EXISTING,
+    use those same two fields only when the new evidence proves the current identity is too tied
+    to an earlier surface behavior and should be broadened. Cite only older known experience IDs.
     """
     return _state().route_new_experience(
         action=action,
@@ -65,6 +74,11 @@ def route_new_experience(
         cited_existing_evidence_ids=cited_existing_evidence_ids,
         new_pattern_name=new_pattern_name,
         new_pattern_hypothesis=new_pattern_hypothesis,
+        trigger=trigger,
+        regulatory_function=regulatory_function,
+        response_behavior=response_behavior,
+        immediate_outcome=immediate_outcome,
+        conscious_intervention=conscious_intervention,
     )
 
 def build_agent(model_id: str) -> Agent:
@@ -77,11 +91,19 @@ def build_agent(model_id: str) -> Agent:
         ),
         instruction=(
             "You are PatternCurator, an evidence-constrained behavioral pattern curator. "
-            "Find repeated situation-action-outcome relationships across different dates. "
+            "Before routing, normalize every new experience into trigger or internal state, "
+            "regulatory function or need, response behavior, immediate outcome, and any "
+            "conscious intervention. Find repeated trigger-function-response-outcome mechanisms "
+            "across different dates. Shared trigger plus shared regulatory function matters more "
+            "than identical surface behavior. "
             "Never diagnose, never turn one event into a recurring pattern, and never use "
             "absolute personality language. Every pattern and evidence link must be written "
             "through the provided tools. Reuse existing patterns instead of creating semantic "
-            "duplicates. Preserve contradictions. Cite only experience IDs present in the prompt. "
+            "duplicates. A conscious interruption of an otherwise matching automatic response "
+            "can remain evidence of the same latent mechanism; record the deviation instead of "
+            "automatically splitting it into a new pattern. Do not merge experiences that share "
+            "only a vague topic or emotion without a meaningful trigger-function overlap. "
+            "Preserve contradictions. Cite only experience IDs present in the prompt. "
             "The code, not you, computes evidence_count, independent_dates, and status."
         ),
         tools=[

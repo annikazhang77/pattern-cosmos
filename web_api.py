@@ -178,14 +178,81 @@ def save_session(session_id: str, session: SessionState) -> None:
         local_sessions[session_id] = session
 
 
-def routing_prompt(experience: dict[str, str], patterns: list[dict[str, Any]]) -> str:
+def routing_context(state: PatternState) -> list[dict[str, Any]]:
+    experience_map = {
+        row["experience_id"]: row for row in state.experience_rows()
+    }
+    context: list[dict[str, Any]] = []
+    for pattern in state.patterns():
+        context.append(
+            {
+                **pattern,
+                "supporting_evidence": [
+                    {
+                        "experience_id": experience_map[item_id]["experience_id"],
+                        "date": experience_map[item_id]["date"],
+                        "text": experience_map[item_id]["text"],
+                        "mechanism": experience_map[item_id].get("mechanism"),
+                    }
+                    for item_id in pattern["supporting_experience_ids"]
+                    if item_id in experience_map
+                ],
+                "contradicting_evidence": [
+                    {
+                        "experience_id": experience_map[item_id]["experience_id"],
+                        "date": experience_map[item_id]["date"],
+                        "text": experience_map[item_id]["text"],
+                        "mechanism": experience_map[item_id].get("mechanism"),
+                    }
+                    for item_id in pattern["contradicting_experience_ids"]
+                    if item_id in experience_map
+                ],
+            }
+        )
+    return context
+
+
+def routing_prompt(experience: dict[str, Any], patterns: list[dict[str, Any]]) -> str:
     return f"""
 Route exactly one new experience against the existing pattern state.
 
 Allowed actions: NEW_PATTERN, REINFORCE_EXISTING, CONTRADICT_EXISTING, PROPOSE_MERGE.
+Before selecting an action, normalize the new experience into these required tool arguments:
+- trigger: the situation, cue, or internal state that begins the path
+- regulatory_function: the immediate need the automatic response serves, such as soothing,
+  escape, control, stimulation, connection, or tension release
+- response_behavior: what the person did or felt pulled to do; preserve concrete manifestations
+- immediate_outcome: the directly observed short-term result
+- conscious_intervention: any deliberate interruption or deviation; use an empty string if absent
+
+Compare mechanisms in this order:
+1. meaningful overlap in trigger or internal state
+2. meaningful overlap in regulatory function or need
+3. response and outcome details
+
+Shared trigger plus shared regulatory function outweigh different surface actions. For example,
+fiction generation, scrolling, and body-focused habits can support one higher-level candidate when
+each is an immediate soothing or attentional escape response to pressure or avoidance. Conversely,
+do not merge experiences merely because both mention stress, work, AI, or distraction.
+
+If a person feels the same automatic pull but deliberately interrupts it, the experience may
+REINFORCE the underlying trigger-function pattern while conscious_intervention records the deviation.
+Use CONTRADICT_EXISTING only when the experience is genuine counter-evidence to the mechanism, not
+merely because the final behavior was redirected.
+
 Call route_new_experience exactly once. Cite older supporting evidence IDs that make the decision
 grounded. For NEW_PATTERN, cite no old evidence, leave target_pattern_id empty, and provide a
-cautious new pattern name and hypothesis. Do not force a merge. Do not diagnose the user.
+cautious mechanism-level pattern name and hypothesis. Keep surface behaviors as evidence details,
+not as the pattern identity. Write the display name in the same language as the experience. It must
+read like a natural human phrase, not an ID or hyphenated slug. Name the trigger-function path, not
+the current app, habit, or content type. The hypothesis may mention the current behavior as one
+manifestation, but it must leave room for different behaviors serving the same function. Do not
+force a merge. Do not diagnose the user.
+
+For REINFORCE_EXISTING, normally leave new_pattern_name and new_pattern_hypothesis empty. When a
+new surface behavior reveals that the existing name or hypothesis is too narrow, use those fields
+to refine it into a broader natural-language trigger-function identity. Preserve the concrete
+manifestations in evidence; do not broaden into a vague label such as stress response.
 
 Existing patterns:
 {json.dumps(patterns, indent=2, ensure_ascii=False)}
@@ -207,7 +274,7 @@ async def invoke_pattern_curator(
     )
     runner = Runner(agent=agent, app_name="pattern_cosmos_web", session_service=session_service)
     content = types.Content(
-        role="user", parts=[types.Part(text=routing_prompt(experience, state.patterns()))]
+        role="user", parts=[types.Part(text=routing_prompt(experience, routing_context(state)))]
     )
     model_calls = 0
     async for event in runner.run_async(
