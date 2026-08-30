@@ -39,7 +39,10 @@ interface FutureChoiceDraft {
   position: FutureChoicePosition;
 }
 
-const fortuneStorageKey = "pattern-cosmos-fortune-state-v2";
+// v3 intentionally invalidates interaction state written by the regressed
+// polish build. New user-triggered progress still persists across refreshes.
+const fortuneStorageKey = "pattern-cosmos-fortune-state-v3-contract";
+const staleFortuneStorageKeys = ["pattern-cosmos-fortune-state-v2"];
 
 interface StoredFortuneState {
   fortunes: Record<string, FortuneState>;
@@ -48,6 +51,7 @@ interface StoredFortuneState {
 
 function readStoredFortuneState(): StoredFortuneState {
   try {
+    staleFortuneStorageKeys.forEach((key) => window.localStorage.removeItem(key));
     const stored = window.localStorage.getItem(fortuneStorageKey);
     if (!stored) return { fortunes: {}, orbits: {} };
     const parsed = JSON.parse(stored) as Partial<StoredFortuneState>;
@@ -76,6 +80,7 @@ export default function App() {
   const settleTimer = useRef<number | null>(null);
   const stateRef = useRef(state);
   const projectionRequests = useRef(new Map<string, ReturnType<typeof api.createProjection>>());
+  const projectionEpoch = useRef(0);
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
@@ -126,8 +131,10 @@ export default function App() {
     if (stateRef.current.trajectory_projections[patternId]) return Promise.resolve(null);
     const activeRequest = projectionRequests.current.get(patternId);
     if (activeRequest) return activeRequest;
+    const requestEpoch = projectionEpoch.current;
     const request = api.createProjection(patternId)
       .then((result) => {
+        if (requestEpoch !== projectionEpoch.current) return result;
         setState((current) => ({
           ...current,
           trajectory_projections: {
@@ -166,12 +173,17 @@ export default function App() {
   };
 
   const loadDemo = () => run(api.loadDemo, (nextState) => {
+    projectionEpoch.current += 1;
+    projectionRequests.current.clear();
     setState(nextState);
     setSelectedPatternId(null);
     setFortuneStates({});
     setOrbitStates({});
     setFutureChoice(null);
     setOracleSequence(null);
+    setCosmicEvent(null);
+    setInteractionMode("READ_MODE");
+    staleFortuneStorageKeys.forEach((key) => window.localStorage.removeItem(key));
     window.localStorage.removeItem(fortuneStorageKey);
   });
 
@@ -221,6 +233,9 @@ export default function App() {
       await delay(reducedMotion ? 30 : isConstellation ? 460 : 700);
       setCosmicEvent(null);
       setInteractionMode("READ_MODE");
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>(".pattern-reading")?.scrollTo({ top: 0 });
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Something went wrong");
       setCosmicEvent(null);
@@ -358,6 +373,7 @@ export default function App() {
       data-cosmic-event={cosmicEvent?.kind ?? "NONE"}
       data-cosmic-event-phase={cosmicEvent?.phase ?? "NONE"}
       data-oracle-duration-ms={lastOracleDurationMs}
+      data-future-choice-selected={futureChoice ? "true" : "false"}
     >
       <header className="topbar">
         <div className="brand-lockup">

@@ -138,10 +138,13 @@ export function PatternDrawer({
     .map((id) => experienceMap.get(id))
     .filter((item): item is Experience => Boolean(item));
   const orbitAction = pattern.visual_state === "black_hole" ? "Escape this orbit" : "Change the orbit";
+  const changedOrbitComplete = changedOrbit !== null && orbitState === "changed";
 
   return (
     <aside
       className={`pattern-reading${immersiveEventMode ? " is-event-hidden" : ""}`}
+      data-fortune-state={fortuneState}
+      data-orbit-state={orbitState}
       role="dialog"
       aria-modal="true"
       aria-label={`Inspect ${pattern.name}`}
@@ -160,6 +163,32 @@ export function PatternDrawer({
           <p className="reading-hypothesis">{pattern.hypothesis}</p>
           <p className="reading-kicker">Seen in {pattern.evidence_count} supporting moments</p>
         </header>
+
+        {fortuneState === "unread" && (
+          <section className="orbit-section orbit-section--entry">
+            <button
+              className="oracle-action"
+              onClick={() => {
+                const bounds = orbRef.current?.getBoundingClientRect();
+                onSeeDefaultFuture(bounds ? {
+                  x: bounds.left + bounds.width / 2,
+                  y: bounds.top + bounds.height / 2,
+                  size: bounds.width,
+                } : { x: window.innerWidth * 0.64, y: window.innerHeight * 0.62, size: 92 });
+              }}
+              disabled={busy || pattern.evidence_count < 3}
+            >
+              <span ref={orbRef} className="oracle-orb" aria-hidden="true">
+                <span className="oracle-orb__gas" />
+                <span className="oracle-orb__glint" />
+              </span>
+              <span className="oracle-copy">
+                <strong>Read the orbit</strong>
+                <small>See where this pattern leads if nothing changes.</small>
+              </span>
+            </button>
+          </section>
+        )}
 
         <section className="reading-section evidence-reading">
           <p className="reading-intro">Here are the moments that formed this pattern.</p>
@@ -201,29 +230,7 @@ export function PatternDrawer({
         </section>
 
         <section className="orbit-section">
-          {fortuneState === "unread" ? (
-            <button
-              className="oracle-action"
-              onClick={() => {
-                const bounds = orbRef.current?.getBoundingClientRect();
-                onSeeDefaultFuture(bounds ? {
-                  x: bounds.left + bounds.width / 2,
-                  y: bounds.top + bounds.height / 2,
-                  size: bounds.width,
-                } : { x: window.innerWidth * 0.64, y: window.innerHeight * 0.62, size: 92 });
-              }}
-              disabled={busy || pattern.evidence_count < 3}
-            >
-              <span ref={orbRef} className="oracle-orb" aria-hidden="true">
-                <span className="oracle-orb__gas" />
-                <span className="oracle-orb__glint" />
-              </span>
-              <span className="oracle-copy">
-                <strong>Read the orbit</strong>
-                <small>See where this pattern leads if nothing changes.</small>
-              </span>
-            </button>
-          ) : projection ? (
+          {fortuneState !== "unread" && projection ? (
             <div className="default-future">
               <header className="future-heading">
                 <span>Default Future · One Year</span>
@@ -267,7 +274,7 @@ export function PatternDrawer({
                 </div>
               )}
 
-              {fortuneState === "three_year" && !showAlternatives && !changedOrbit && (
+              {fortuneState === "three_year" && !showAlternatives && !changedOrbitComplete && (
                 <button className="change-orbit-action" onClick={() => setShowAlternatives(true)}>
                   <Sparkle size={17} weight="fill" />
                   <span>{orbitAction}</span>
@@ -275,7 +282,7 @@ export function PatternDrawer({
                 </button>
               )}
 
-              {showAlternatives && !changedOrbit && (
+              {showAlternatives && !changedOrbitComplete && (
                 <div className="alternative-responses">
                   <p>Choose a smaller response at the same trigger.</p>
                   {projection.alternatives.map((alternative) => (
@@ -312,7 +319,7 @@ export function PatternDrawer({
                 </div>
               )}
 
-              {changedOrbit && fortuneState === "three_year" && orbitState === "changed" && (
+              {changedOrbitComplete && changedOrbit && fortuneState === "three_year" && (
                 <div className="changed-orbit-result">
                   <header>
                     <span>Changed Orbit</span>
