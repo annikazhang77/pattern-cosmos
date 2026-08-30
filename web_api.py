@@ -82,6 +82,16 @@ class SessionState:
         self.agent_call_count = 0
         self.last_import = None
 
+    def start_genesis(self) -> None:
+        """Create a real empty personal Cosmos without any seeded patterns."""
+        self.state = PatternState(WEB_STATE_DIR, [], [], persist_files=not USE_FIRESTORE)
+        self.loaded = True
+        self.last_routing = None
+        self.agent_call_count = 0
+        self.last_import = None
+        self.trajectory_projections = {}
+        self.changed_orbits = {}
+
     def export(self) -> dict[str, Any]:
         return {
             "loaded": self.loaded,
@@ -394,6 +404,17 @@ def load_demo(x_cosmos_session: str | None = Header(default=None)) -> dict[str, 
     save_session(session_id, session)
     if store:
         store.log_run(session_id, {"kind": "LOAD_SANITIZED_DEMO"})
+    return session.payload()
+
+
+@app.post("/api/genesis/start")
+def start_genesis(x_cosmos_session: str | None = Header(default=None)) -> dict[str, Any]:
+    session_id = normalized_session_id(x_cosmos_session)
+    session = SessionState()
+    session.start_genesis()
+    save_session(session_id, session)
+    if store:
+        store.log_run(session_id, {"kind": "START_GENESIS"})
     return session.payload()
 
 

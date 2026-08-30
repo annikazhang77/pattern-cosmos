@@ -1,16 +1,18 @@
-import { Database, Sparkle, UploadSimple } from "@phosphor-icons/react";
+import { Database, SpeakerHigh, SpeakerSlash, Sparkle, UploadSimple } from "@phosphor-icons/react";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddExperience } from "./AddExperience";
-import { api } from "./api";
+import { api, productMode } from "./api";
 import { EntryIntro } from "./EntryIntro";
 import { OracleSequence } from "./OracleSequence";
 import { PatternDrawer } from "./PatternDrawer";
 import { ThreeCosmosView } from "./ThreeCosmosView";
+import { useGenesisAudio } from "./useGenesisAudio";
 import type {
   AlternativeResponse,
   AppState,
   CosmicEventState,
   FortuneState,
+  GenesisBirth,
   FutureChoicePosition,
   InteractionMode,
   OracleOrigin,
@@ -18,6 +20,21 @@ import type {
   OrbitState,
   VisualState,
 } from "./types";
+
+const genesisExamples = [
+  {
+    date: "2026-08-12",
+    text: "I was building a small portfolio page, but when deployment failed I opened several tutorials and switched to testing a new framework instead of finishing the page.",
+  },
+  {
+    date: "2026-08-20",
+    text: "While making a newsletter archive, the email template broke, so I spent the evening comparing automation tools and left the archive unfinished.",
+  },
+  {
+    date: "2026-08-27",
+    text: "While debugging a small AI prototype, an authentication error blocked me, so I began comparing voice-agent tools and never returned to the original fix.",
+  },
+];
 
 const emptyState: AppState = {
   loaded: false,
@@ -77,10 +94,17 @@ export default function App() {
   const [orbitStates, setOrbitStates] = useState<Record<string, OrbitState>>(storedFortune.orbits);
   const [oracleSequence, setOracleSequence] = useState<OracleSequenceState | null>(null);
   const [lastOracleDurationMs, setLastOracleDurationMs] = useState(0);
+  const [hydrating, setHydrating] = useState(true);
+  const [genesisBirths, setGenesisBirths] = useState<GenesisBirth[]>([]);
+  const [emergingPatternId, setEmergingPatternId] = useState<string | null>(null);
+  const [genesisMessage, setGenesisMessage] = useState<string | null>(null);
+  const [genesisDemoStep, setGenesisDemoStep] = useState(0);
+  const { muted, play: playGenesisCue, toggleMuted, unlock: unlockAudio } = useGenesisAudio();
   const settleTimer = useRef<number | null>(null);
   const stateRef = useRef(state);
   const projectionRequests = useRef(new Map<string, ReturnType<typeof api.createProjection>>());
   const projectionEpoch = useRef(0);
+  const genesisTimers = useRef<number[]>([]);
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
@@ -95,7 +119,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api.state().then((nextState) => {
+    const bootstrap = async () => {
+      let nextState = productMode.seededDemo
+        ? await api.loadDemo()
+        : productMode.genesisDemo
+          ? await api.startGenesis()
+          : await api.state();
+      if (!nextState.loaded) nextState = await api.startGenesis();
       setState(nextState);
       const requestedFocus = new URLSearchParams(window.location.search).get("focus");
       const validRequestedFocus = nextState.patterns.some(
@@ -104,11 +134,17 @@ export default function App() {
       setSelectedPatternId(
         validRequestedFocus ?? nextState.last_routing?.target_pattern_id ?? null,
       );
-    }).catch((requestError: Error) => setError(requestError.message));
+      setHydrating(false);
+    };
+    void bootstrap().catch((requestError: Error) => {
+      setError(requestError.message);
+      setHydrating(false);
+    });
   }, []);
 
   useEffect(() => () => {
     if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    genesisTimers.current.forEach((timer) => window.clearTimeout(timer));
   }, []);
 
   useEffect(() => {
@@ -187,17 +223,95 @@ export default function App() {
     window.localStorage.removeItem(fortuneStorageKey);
   });
 
-  const addExperience = (date: string, text: string) => run(
-    () => api.addExperience(date, text),
-    ({ state: nextState, routing }) => {
+  const resetGenesis = () => run(api.startGenesis, (nextState) => {
+    projectionEpoch.current += 1;
+    projectionRequests.current.clear();
+    setState(nextState);
+    setSelectedPatternId(null);
+    setFortuneStates({});
+    setOrbitStates({});
+    setGenesisBirths([]);
+    setEmergingPatternId(null);
+    setGenesisMessage(null);
+    setGenesisDemoStep(0);
+    window.localStorage.removeItem(fortuneStorageKey);
+  });
+
+  const enterSeededDemo = () => {
+    void unlockAudio();
+    window.location.assign(`${window.location.pathname}?demo=1&intro=0`);
+  };
+
+  const exitDemo = () => {
+    window.location.assign(`${window.location.pathname}?intro=0`);
+  };
+
+  const addExperience = async (date: string, text: string) => {
+    const sequence = stateRef.current.experiences.length;
+    const birthId = `birth-${Date.now()}-${sequence}`;
+    const beforePatterns = new Map(stateRef.current.patterns.map((pattern) => [pattern.pattern_id, pattern.evidence_count]));
+    setBusy(true);
+    setError(null);
+    setSelectedPatternId(null);
+    setGenesisMessage("A new star enters your cosmos.");
+    setGenesisBirths((current) => [...current, { birth_id: birthId, sequence, phase: "birthing" }]);
+    void playGenesisCue("birth");
+    const routingTimer = window.setTimeout(() => {
+      setGenesisBirths((current) => current.map((birth) => birth.birth_id === birthId ? { ...birth, phase: "routing" } : birth));
+      setGenesisMessage("PatternCurator is listening for what this moment belongs to.");
+    }, 680);
+    genesisTimers.current.push(routingTimer);
+    try {
+      const { state: nextState, routing } = await api.addExperience(date, text);
       setState(nextState);
-      if (routing.target_pattern_id) setSelectedPatternId(routing.target_pattern_id);
+      const targetPattern = routing.target_pattern_id
+        ? nextState.patterns.find((pattern) => pattern.pattern_id === routing.target_pattern_id) ?? null
+        : nextState.patterns[nextState.patterns.length - 1] ?? null;
+      setEmergingPatternId(targetPattern?.pattern_id ?? null);
+      setGenesisBirths((current) => current.map((birth) => birth.birth_id === birthId ? { ...birth, phase: "settling" } : birth));
+      const previousCount = targetPattern ? beforePatterns.get(targetPattern.pattern_id) ?? 0 : 0;
       if (routing.action === "NEW_PATTERN") {
-        const newest = nextState.patterns[nextState.patterns.length - 1];
-        if (newest) setSelectedPatternId(newest.pattern_id);
+        setGenesisMessage("A faint new region begins to gather around this moment.");
+        void playGenesisCue("proto");
+      } else if (routing.action === "REINFORCE_EXISTING" && targetPattern) {
+        if (previousCount < 3 && targetPattern.evidence_count >= 3) {
+          setGenesisMessage("Repeated evidence resolves the haze into a nebula.");
+          void playGenesisCue("mature");
+        } else {
+          setGenesisMessage("This star joins an existing region. The pattern grows brighter.");
+          void playGenesisCue("join");
+        }
+      } else if (routing.action === "CONTRADICT_EXISTING") {
+        setGenesisMessage("This star settles at the edge of the pattern as counter-evidence.");
+        void playGenesisCue("join");
+      } else {
+        setGenesisMessage("This moment reveals a possible relationship between regions.");
+        void playGenesisCue("join");
       }
-    },
-  );
+      const settleTimerId = window.setTimeout(() => {
+        setGenesisBirths((current) => current.filter((birth) => birth.birth_id !== birthId));
+      }, 1500);
+      const messageTimerId = window.setTimeout(() => {
+        setGenesisMessage(null);
+        setEmergingPatternId(null);
+      }, 5200);
+      genesisTimers.current.push(settleTimerId, messageTimerId);
+    } catch (requestError) {
+      setGenesisBirths((current) => current.filter((birth) => birth.birth_id !== birthId));
+      setGenesisMessage(null);
+      setError(requestError instanceof Error ? requestError.message : "PatternCurator failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addNextGenesisExample = async () => {
+    const example = genesisExamples[genesisDemoStep];
+    if (!example) return;
+    await unlockAudio();
+    await addExperience(example.date, example.text);
+    setGenesisDemoStep((current) => Math.min(current + 1, genesisExamples.length));
+  };
 
   const importFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -366,14 +480,29 @@ export default function App() {
     run(() => api.createPrinciple(selectedPattern.pattern_id), (result) => setState(result.state));
   };
 
+  const isGenesisEmpty = state.loaded && state.experiences.length === 0 && state.patterns.length === 0;
+  const genesisStage = state.patterns.some((pattern) => pattern.evidence_count >= 3)
+    ? "mature"
+    : state.patterns.some((pattern) => pattern.evidence_count === 2)
+      ? "gathering"
+      : state.patterns.some((pattern) => pattern.evidence_count === 1)
+        ? "proto"
+        : genesisBirths.length > 0
+          ? "star"
+          : "empty";
+
   return (
     <main
-      className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}${interactionMode === "COSMIC_EVENT_MODE" ? " is-cosmic-event" : interactionMode === "ORACLE_SEQUENCE" ? " is-oracle-sequence" : " is-read-mode"}`}
+      className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}${isGenesisEmpty ? " is-genesis-empty" : ""}${interactionMode === "COSMIC_EVENT_MODE" ? " is-cosmic-event" : interactionMode === "ORACLE_SEQUENCE" ? " is-oracle-sequence" : " is-read-mode"}`}
       data-interaction-mode={interactionMode}
       data-cosmic-event={cosmicEvent?.kind ?? "NONE"}
       data-cosmic-event-phase={cosmicEvent?.phase ?? "NONE"}
       data-oracle-duration-ms={lastOracleDurationMs}
       data-future-choice-selected={futureChoice ? "true" : "false"}
+      data-product-mode={productMode.seededDemo ? "seeded-demo" : productMode.genesisDemo ? "genesis-demo" : "personal"}
+      data-genesis-stage={genesisStage}
+      data-user-pattern-count={state.patterns.length}
+      data-user-experience-count={state.experiences.length}
     >
       <header className="topbar">
         <div className="brand-lockup">
@@ -394,9 +523,27 @@ export default function App() {
           <button className="load-button" onClick={() => importInput.current?.click()} disabled={busy}>
             <UploadSimple size={15} /> Import dated notes
           </button>
-          <button className="load-button" onClick={loadDemo} disabled={busy}>
-            <Database size={15} />
-            {state.loaded ? "Reset demo" : "Load demo"}
+          {productMode.seededDemo && (
+            <button className="load-button" onClick={loadDemo} disabled={busy}>
+              <Database size={15} /> Reset demo
+            </button>
+          )}
+          {productMode.genesisDemo && (
+            <button className="load-button" onClick={resetGenesis} disabled={busy}>
+              <Database size={15} /> Reset Genesis
+            </button>
+          )}
+          {(productMode.seededDemo || productMode.genesisDemo) && (
+            <button className="load-button" onClick={exitDemo}>Return to my Cosmos</button>
+          )}
+          <button
+            className="sound-toggle"
+            type="button"
+            onClick={() => void toggleMuted()}
+            aria-label={muted ? "Unmute cosmic sound" : "Mute cosmic sound"}
+            aria-pressed={muted}
+          >
+            {muted ? <SpeakerSlash size={16} /> : <SpeakerHigh size={16} />}
           </button>
         </div>
       </header>
@@ -411,41 +558,48 @@ export default function App() {
 
       <section className={`workspace${selectedPattern ? " has-selection" : ""}`}>
         <div className="cosmos-column">
-          {state.loaded ? (
-            <ThreeCosmosView
-              patterns={state.patterns}
-              selectedPatternId={selectedPatternId}
-              onSelectPattern={setSelectedPatternId}
-              futureChoice={futureChoice}
-              projections={state.trajectory_projections}
-              changedOrbits={state.changed_orbits}
-              orbitStates={orbitStates}
-              escapeAnimationId={escapeAnimationId}
-              cosmicEvent={cosmicEvent}
-              interactionMode={interactionMode}
-              onTrajectoryComplete={finishTrajectoryEvent}
-            />
-          ) : (
-            <div className="cosmos-empty">
-              <div className="empty-orbit" aria-hidden="true">
-                <span />
-                <Sparkle size={17} weight="thin" />
-              </div>
-              <h1>See what repeats.</h1>
-              <p>Load dated experiences to turn isolated moments into evidence-linked patterns.</p>
-              <button className="entry-action" onClick={loadDemo} disabled={busy}>
-                <span className="entry-action__star" aria-hidden="true"><Sparkle size={15} weight="fill" /></span>
-                <span>Load Personal Cosmos</span>
+          <ThreeCosmosView
+            patterns={state.patterns}
+            selectedPatternId={selectedPatternId}
+            onSelectPattern={setSelectedPatternId}
+            futureChoice={futureChoice}
+            projections={state.trajectory_projections}
+            changedOrbits={state.changed_orbits}
+            orbitStates={orbitStates}
+            escapeAnimationId={escapeAnimationId}
+            cosmicEvent={cosmicEvent}
+            interactionMode={interactionMode}
+            genesisBirths={genesisBirths}
+            emergingPatternId={emergingPatternId}
+            onTrajectoryComplete={finishTrajectoryEvent}
+          />
+
+          {isGenesisEmpty && !hydrating && (
+            <div className="genesis-invitation">
+              <span className="genesis-invitation__kicker">Your cosmos begins without a story imposed on it.</span>
+              <h1>Add a moment from your life.</h1>
+              <p>A star appears first. PatternCurator listens for where it belongs.</p>
+              {!productMode.genesisDemo && (
+                <button className="genesis-demo-link" type="button" onClick={enterSeededDemo}>
+                  Explore a demo cosmos
+                </button>
+              )}
+            </div>
+          )}
+
+          {productMode.genesisDemo && (
+            <div className="genesis-demo-control" aria-label="Hackathon Genesis sequence">
+              <span>GENESIS DEMO · {genesisDemoStep}/{genesisExamples.length}</span>
+              <button type="button" onClick={() => void addNextGenesisExample()} disabled={busy || genesisDemoStep >= genesisExamples.length}>
+                {genesisDemoStep >= genesisExamples.length ? "Sequence complete" : `Release example ${genesisDemoStep + 1}`}
               </button>
             </div>
           )}
 
-          {state.last_routing && (
-            <div className="routing-result" role="status">
-              <span>PatternCurator</span>
-              <strong>{state.last_routing.action.replaceAll("_", " ")}</strong>
-              <p>{state.last_routing.reason}</p>
-              <small>{state.last_routing.model} / {state.last_routing.model_calls} calls</small>
+          {genesisMessage && (
+            <div className="genesis-response" role="status" aria-live="polite">
+              <Sparkle size={12} weight="fill" />
+              <span>{genesisMessage}</span>
             </div>
           )}
         </div>
@@ -473,7 +627,13 @@ export default function App() {
         )}
       </section>
 
-      <AddExperience disabled={!state.loaded} busy={busy} onSubmit={addExperience} />
+      <AddExperience
+        disabled={!state.loaded || hydrating}
+        busy={busy}
+        genesis={isGenesisEmpty}
+        onInteract={() => void unlockAudio()}
+        onSubmit={addExperience}
+      />
       {oracleSequence && <OracleSequence sequence={oracleSequence} />}
       {showIntro && <EntryIntro onComplete={finishIntro} />}
     </main>

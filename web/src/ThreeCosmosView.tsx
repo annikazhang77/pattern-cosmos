@@ -9,6 +9,7 @@ import type {
   CosmicEventState,
   DefaultFutureProjection,
   FutureChoicePosition,
+  GenesisBirth,
   InteractionMode,
   OrbitState,
   Pattern,
@@ -33,6 +34,8 @@ interface ThreeCosmosViewProps {
   cosmicEvent: CosmicEventState | null;
   onTrajectoryComplete: () => void;
   interactionMode: InteractionMode;
+  genesisBirths: GenesisBirth[];
+  emergingPatternId: string | null;
 }
 
 type TrajectoryMode = "hidden" | "current" | "animating" | "changed";
@@ -1648,6 +1651,118 @@ function useRadialGlowTexture() {
   return texture;
 }
 
+function useProtoNebulaTexture() {
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 320;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const random = mulberry32(74291);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.globalCompositeOperation = "lighter";
+    for (let index = 0; index < 18; index += 1) {
+      const x = 120 + random() * 280;
+      const y = 72 + random() * 176;
+      const radius = 38 + random() * 105;
+      const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+      const cyan = index % 3 !== 0;
+      gradient.addColorStop(0, cyan ? "rgba(87,190,204,0.16)" : "rgba(215,107,148,0.1)");
+      gradient.addColorStop(0.4, cyan ? "rgba(39,108,130,0.08)" : "rgba(119,48,83,0.05)");
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      context.fillStyle = gradient;
+      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+    context.globalCompositeOperation = "destination-out";
+    for (let index = 0; index < 5; index += 1) {
+      const x = 130 + random() * 250;
+      const y = 90 + random() * 140;
+      const radius = 34 + random() * 75;
+      const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, "rgba(0,0,0,0.5)");
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      context.fillStyle = gradient;
+      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+    const next = new THREE.CanvasTexture(canvas);
+    next.colorSpace = THREE.SRGBColorSpace;
+    next.minFilter = THREE.LinearFilter;
+    next.magFilter = THREE.LinearFilter;
+    return next;
+  }, []);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  return texture;
+}
+
+function ProtoNebulaHaze({ evidenceCount, emerging, dimmed }: { evidenceCount: number; emerging: boolean; dimmed: boolean }) {
+  const texture = useProtoNebulaTexture();
+  const groupRef = useRef<THREE.Group>(null);
+  const opacity = evidenceCount >= 2 ? 0.48 : 0.2;
+  useFrame((state, delta) => {
+    if (!groupRef.current) return;
+    const target = evidenceCount >= 2 ? 1.5 : 0.82;
+    const scale = THREE.MathUtils.damp(groupRef.current.scale.x, target, emerging ? 1.7 : 1.1, delta);
+    groupRef.current.scale.setScalar(scale);
+    groupRef.current.rotation.z = Math.sin(state.clock.elapsedTime * 0.13) * 0.035;
+  });
+  return (
+    <group ref={groupRef} scale={0.08}>
+      {[[-0.06, 0.02, -0.18, 0.08], [0.18, -0.02, 0.04, -0.2], [-0.2, 0.1, 0.2, 0.34]].map((layer, index) => (
+        <sprite key={index} position={[layer[0], layer[1], layer[2]]} rotation={[0, 0, layer[3]]} scale={[2.1 - index * 0.18, 1.24 - index * 0.12, 1]}>
+          <spriteMaterial
+            map={texture}
+            color={index === 1 ? "#d77a9a" : "#72c4cf"}
+            transparent
+            opacity={opacity * (index === 0 ? 0.9 : 0.48) * (dimmed ? 0.16 : 1)}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </sprite>
+      ))}
+    </group>
+  );
+}
+
+function GenesisBirthStar({ birth }: { birth: GenesisBirth }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const coreRef = useRef<THREE.MeshBasicMaterial>(null);
+  const haloRef = useRef<THREE.SpriteMaterial>(null);
+  const glowTexture = useRadialGlowTexture();
+  const position = useMemo<[number, number, number]>(() => [
+    -0.55 + (birth.sequence % 3) * 0.48,
+    0.06 + Math.sin(birth.sequence * 2.1) * 0.28,
+    2.85 - Math.min(birth.sequence, 4) * 0.12,
+  ], [birth.sequence]);
+  useFrame((state, delta) => {
+    if (!groupRef.current) return;
+    const agePulse = 1 + Math.sin(state.clock.elapsedTime * 4.2 + birth.sequence) * 0.08;
+    const target = birth.phase === "settling" ? 0.36 : agePulse;
+    const scale = THREE.MathUtils.damp(groupRef.current.scale.x, target, birth.phase === "birthing" ? 5.2 : 2.4, delta);
+    groupRef.current.scale.setScalar(scale);
+    if (coreRef.current) coreRef.current.opacity = THREE.MathUtils.damp(coreRef.current.opacity, birth.phase === "settling" ? 0.2 : 1, 3, delta);
+    if (haloRef.current) haloRef.current.opacity = THREE.MathUtils.damp(haloRef.current.opacity, birth.phase === "settling" ? 0.04 : 0.72, 3, delta);
+  });
+  return (
+    <group ref={groupRef} position={position} scale={0.04}>
+      <mesh>
+        <sphereGeometry args={[0.055, 16, 12]} />
+        <meshBasicMaterial ref={coreRef} color="#f8fffd" transparent toneMapped={false} />
+      </mesh>
+      <sprite scale={[0.82, 0.82, 1]}>
+        <spriteMaterial ref={haloRef} map={glowTexture} color="#a9eff1" transparent opacity={0.72} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </sprite>
+      <mesh rotation={[0, 0, Math.PI / 4]}>
+        <ringGeometry args={[0.1, 0.108, 48]} />
+        <meshBasicMaterial color="#d8fbf7" transparent opacity={birth.phase === "birthing" ? 0.44 : 0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function GenesisBirthLayer({ births }: { births: GenesisBirth[] }) {
+  return <group>{births.map((birth) => <GenesisBirthStar key={birth.birth_id} birth={birth} />)}</group>;
+}
+
 function ExperienceStars({
   pattern,
   selected,
@@ -2227,6 +2342,7 @@ function PatternNebula({
   trajectoryMode,
   escapeAnimationId,
   onTrajectoryComplete,
+  emerging,
 }: {
   pattern: Pattern;
   spec: NebulaSpec;
@@ -2240,6 +2356,7 @@ function PatternNebula({
   trajectoryMode: TrajectoryMode;
   escapeAnimationId: number;
   onTrajectoryComplete: () => void;
+  emerging: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -2290,6 +2407,7 @@ function PatternNebula({
   const seed = hashString(pattern.pattern_id);
   const usesPhotographicHybrid = dominant && visual.name === "D";
   const usesPhotographicDepth = dominant && visual.name === "D2";
+  const isProtoNebula = pattern.visual_state === "nebula" && pattern.evidence_count < 3;
   return (
     <group
       ref={groupRef}
@@ -2297,7 +2415,9 @@ function PatternNebula({
       rotation={spec.rotation}
       scale={spec.scale}
     >
-      {usesPhotographicDepth ? (
+      {isProtoNebula ? (
+        <ProtoNebulaHaze evidenceCount={pattern.evidence_count} emerging={emerging} dimmed={dimmed} />
+      ) : usesPhotographicDepth ? (
         <PhotographicDepthNebula
           colors={spec.colors}
           selected={selected || hovered}
@@ -2535,9 +2655,12 @@ function Scene({
   escapeAnimationId,
   cosmicEvent,
   onTrajectoryComplete,
+  genesisBirths,
+  emergingPatternId,
 }: ThreeCosmosViewProps & { visual: VisualPreset }) {
   const nebulaSpecs = useMemo(() => [visual.main, ...SATELLITE_NEBULAE], [visual]);
-  const selectedIndex = patterns.findIndex((pattern) => pattern.pattern_id === selectedPatternId);
+  const attentionPatternId = selectedPatternId ?? emergingPatternId;
+  const selectedIndex = patterns.findIndex((pattern) => pattern.pattern_id === attentionPatternId);
   const selectedFrame = useMemo(() => {
     if (selectedIndex < 0) return null;
     const spec = nebulaSpecs[selectedIndex % nebulaSpecs.length];
@@ -2562,6 +2685,7 @@ function Scene({
       <fog attach="fog" args={["#02050a", 21, 52]} />
       <ambientLight intensity={0.08} />
       <LayeredStarField visual={visual} />
+      <GenesisBirthLayer births={genesisBirths} />
       <group rotation={UNIVERSE_ROTATION}>
         {patterns.map((pattern, index) => (
           (() => {
@@ -2594,6 +2718,7 @@ function Scene({
             trajectoryMode={trajectoryMode}
             escapeAnimationId={escapeAnimationId}
             onTrajectoryComplete={onTrajectoryComplete}
+            emerging={emergingPatternId === pattern.pattern_id}
           />
             );
           })()
@@ -2631,6 +2756,8 @@ export function ThreeCosmosView({
   cosmicEvent,
   onTrajectoryComplete,
   interactionMode,
+  genesisBirths,
+  emergingPatternId,
 }: ThreeCosmosViewProps) {
   const visual = useMemo(resolveVisualPreset, []);
   return (
@@ -2659,6 +2786,8 @@ export function ThreeCosmosView({
           cosmicEvent={cosmicEvent}
           onTrajectoryComplete={onTrajectoryComplete}
           interactionMode={interactionMode}
+          genesisBirths={genesisBirths}
+          emergingPatternId={emergingPatternId}
         />
       </Canvas>
     </div>

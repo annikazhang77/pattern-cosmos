@@ -10,6 +10,12 @@ export interface Experience {
   original_text?: string;
 }
 
+export interface GenesisBirth {
+  birth_id: string;
+  sequence: number;
+  phase: "birthing" | "routing" | "settling";
+}
+
 export interface Pattern {
   pattern_id: string;
   name: string;

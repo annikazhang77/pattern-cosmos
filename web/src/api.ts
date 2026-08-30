@@ -7,7 +7,16 @@ import type {
   VisualState,
 } from "./types";
 
-const sessionKey = "pattern-cosmos-anonymous-session";
+const query = new URLSearchParams(window.location.search);
+export const productMode = {
+  seededDemo: query.get("demo") === "1",
+  genesisDemo: query.get("genesis-demo") === "1",
+};
+const sessionKey = productMode.seededDemo
+  ? "pattern-cosmos-seeded-demo-session"
+  : productMode.genesisDemo
+    ? "pattern-cosmos-genesis-demo-session"
+    : "pattern-cosmos-anonymous-session";
 const storedSessionId = window.localStorage.getItem(sessionKey);
 const sessionId = storedSessionId ?? `cosmos-${crypto.randomUUID().replaceAll("-", "")}`;
 if (!storedSessionId) window.localStorage.setItem(sessionKey, sessionId);
@@ -31,6 +40,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => request<AppState>("/api/state"),
+  startGenesis: () => request<AppState>("/api/genesis/start", { method: "POST" }),
   loadDemo: () => request<AppState>("/api/demo/load", { method: "POST" }),
   importFile: (file: File) => {
     const body = new FormData();

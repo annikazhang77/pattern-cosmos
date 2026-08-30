@@ -4,24 +4,27 @@ import { FormEvent, useState } from "react";
 interface AddExperienceProps {
   disabled: boolean;
   busy: boolean;
+  genesis?: boolean;
+  onInteract?: () => void;
   onSubmit: (date: string, text: string) => Promise<void>;
 }
 
-export function AddExperience({ disabled, busy, onSubmit }: AddExperienceProps) {
+export function AddExperience({ disabled, busy, genesis = false, onInteract, onSubmit }: AddExperienceProps) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [text, setText] = useState("");
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!text.trim()) return;
+    onInteract?.();
     await onSubmit(date, text);
     setText("");
   };
 
   return (
-    <form className="experience-composer" onSubmit={submit}>
+    <form className={`experience-composer${genesis ? " is-genesis" : ""}`} onSubmit={submit}>
       <div className="composer-label">
-        <span>Capture a moment</span>
+        <span>{genesis ? "Add a moment from your life." : "Capture a moment"}</span>
       </div>
       <label>
         <span>Date</span>
@@ -32,7 +35,7 @@ export function AddExperience({ disabled, busy, onSubmit }: AddExperienceProps) 
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="What happened, and what stayed with you?"
+          placeholder={genesis ? "What happened? What did you do next?" : "What happened, and what stayed with you?"}
           rows={2}
           disabled={disabled || busy}
         />
