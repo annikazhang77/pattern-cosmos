@@ -859,6 +859,9 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, textar
 .contradiction-reading { margin-top: 72px; }
 .pattern-reading .meaning-section { max-width: 720px; margin-top: 78px; padding-top: 30px; border-top: 1px solid rgba(194, 220, 221, 0.14); }
 .pattern-reading .meaning-section > p { margin: 0; color: rgba(222, 231, 230, 0.84); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; font-style: italic; }
+.emerging-pattern-gate { display: grid; max-width: 590px; gap: 9px; }
+.emerging-pattern-gate strong { color: rgba(232, 239, 238, 0.9); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 20px; font-style: italic; font-weight: 400; }
+.emerging-pattern-gate span { color: rgba(190, 205, 205, 0.7); font-size: 15px; line-height: 1.65; }
 
 .pattern-reading .orbit-section { max-width: 720px; margin-top: 88px; padding: 0; border: 0; }
 .oracle-action { width: 100%; display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; align-items: center; gap: 27px; padding: 26px 0; border-top: 1px solid rgba(196, 222, 223, 0.17); border-bottom: 1px solid rgba(196, 222, 223, 0.11); background: transparent; color: rgba(239, 244, 243, 0.92); text-align: left; }

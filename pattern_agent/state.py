@@ -49,6 +49,11 @@ class PatternState:
             "probe_results": [],
         }
         self.tool_log: list[dict[str, Any]] = deepcopy(initial_tool_log or [])
+        # Reapply evidence-derived invariants when restoring older persisted
+        # sessions. A possible pattern may never retain a user meaning that is
+        # reserved for established recurrence.
+        for pattern in self.state["patterns"]:
+            self._recompute(pattern)
         self._persist()
 
     def _now(self) -> str:
@@ -168,6 +173,8 @@ class PatternState:
         pattern["status"] = (
             "recurring" if len(supporting) >= 3 and len(dates) >= 3 else "possible"
         )
+        if pattern["status"] != "recurring":
+            pattern["visual_state"] = "nebula"
         assert pattern["status"] in ALLOWED_STATUSES
 
     def _record(self, tool: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
@@ -381,6 +388,10 @@ class PatternState:
             if visual_state not in ALLOWED_VISUAL_STATES:
                 raise ValueError(f"Unsupported visual_state: {visual_state}")
             pattern = self._pattern(pattern_id)
+            if visual_state != "nebula" and pattern["status"] != "recurring":
+                raise ValueError(
+                    "Constellation and Black Hole require an established recurring pattern"
+                )
             pattern["visual_state"] = visual_state
             result = {
                 "ok": True,

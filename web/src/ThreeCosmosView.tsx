@@ -2361,6 +2361,8 @@ function PatternNebula({
   const [hovered, setHovered] = useState(false);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
   const groupRef = useRef<THREE.Group>(null);
+  const established = pattern.status === "recurring";
+  const resolvedVisualState = established ? pattern.visual_state : "nebula";
   const geometry = useMemo(
     () => createNebulaGeometry(pattern, spec.colors),
     [pattern.pattern_id, pattern.evidence_count, spec.colors],
@@ -2394,8 +2396,8 @@ function PatternNebula({
       );
       materialRef.current.uniforms.uCollapse.value = THREE.MathUtils.damp(
         materialRef.current.uniforms.uCollapse.value,
-        pattern.visual_state === "black_hole" ? 1 : 0,
-        pattern.visual_state === "black_hole" ? 1.55 : 2.1,
+        resolvedVisualState === "black_hole" ? 1 : 0,
+        resolvedVisualState === "black_hole" ? 1.55 : 2.1,
         delta,
       );
     }
@@ -2407,7 +2409,7 @@ function PatternNebula({
   const seed = hashString(pattern.pattern_id);
   const usesPhotographicHybrid = dominant && visual.name === "D";
   const usesPhotographicDepth = dominant && visual.name === "D2";
-  const isProtoNebula = pattern.visual_state === "nebula" && pattern.evidence_count < 3;
+  const isProtoNebula = !established;
   return (
     <group
       ref={groupRef}
@@ -2428,8 +2430,8 @@ function PatternNebula({
           colors={spec.colors}
           selected={selected || hovered}
           dimmed={dimmed}
-          collapsed={pattern.visual_state === "black_hole"}
-          constellation={pattern.visual_state === "constellation"}
+          collapsed={resolvedVisualState === "black_hole"}
+          constellation={resolvedVisualState === "constellation"}
         />
       ) : (
         <>
@@ -2452,7 +2454,7 @@ function PatternNebula({
             opacity={dominant ? visual.cloudOpacity[0] : 0.7}
             dimmed={dimmed}
             visual={visual}
-            collapsed={pattern.visual_state === "black_hole"}
+            collapsed={resolvedVisualState === "black_hole"}
           />
           <NebulaCloudLayer
             colors={[spec.colors[1], spec.colors[2], spec.colors[0]]}
@@ -2464,7 +2466,7 @@ function PatternNebula({
             opacity={dominant ? visual.cloudOpacity[1] : 0.38}
             dimmed={dimmed}
             visual={visual}
-            collapsed={pattern.visual_state === "black_hole"}
+            collapsed={resolvedVisualState === "black_hole"}
           />
           <points geometry={geometry} frustumCulled={false}>
             <shaderMaterial
@@ -2480,7 +2482,7 @@ function PatternNebula({
                 uTime: { value: 0 },
                 uSelected: { value: selected ? 1 : 0 },
                 uVisibility: { value: dimmed ? 0.12 : 1 },
-                uCollapse: { value: pattern.visual_state === "black_hole" ? 1 : 0 },
+                uCollapse: { value: resolvedVisualState === "black_hole" ? 1 : 0 },
                 uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) },
               }}
             />
@@ -2493,11 +2495,11 @@ function PatternNebula({
         selected={selected || hovered}
         dimmed={dimmed}
         volumetric={usesPhotographicHybrid || usesPhotographicDepth}
-        collapsed={pattern.visual_state === "black_hole"}
+        collapsed={resolvedVisualState === "black_hole"}
         onSelect={onSelect}
       />
 
-      {pattern.visual_state === "constellation" && (
+      {resolvedVisualState === "constellation" && (
         <ConstellationStructure
           pattern={pattern}
           volumetric={usesPhotographicHybrid || usesPhotographicDepth}
@@ -2505,13 +2507,13 @@ function PatternNebula({
         />
       )}
 
-      <CollapseCore active={pattern.visual_state === "black_hole" && !dimmed} />
+      <CollapseCore active={resolvedVisualState === "black_hole" && !dimmed} />
 
       {trajectoryMode !== "hidden" && (
         <GoldenEscapeTrajectory
           target={changedOrbit?.future_choice_position ?? { x: 2.15, y: 0.72, z: 0.55 }}
           animationId={escapeAnimationId}
-          blackHole={pattern.visual_state === "black_hole"}
+          blackHole={resolvedVisualState === "black_hole"}
           mode={trajectoryMode}
           onComplete={onTrajectoryComplete}
         />

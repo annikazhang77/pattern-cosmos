@@ -39,9 +39,9 @@ interface PatternDrawerProps {
 }
 
 const visualOptions: Array<{ value: VisualState; label: string; hint: string }> = [
-  { value: "nebula", label: "Nebula", hint: "Observe" },
-  { value: "constellation", label: "Constellation", hint: "Reinforce" },
-  { value: "black_hole", label: "Black Hole", hint: "Interrupt" },
+  { value: "nebula", label: "Nebula", hint: "Keep observing" },
+  { value: "constellation", label: "Make it a Constellation", hint: "Intentionally reinforce" },
+  { value: "black_hole", label: "Mark as a Black Hole", hint: "Consciously interrupt" },
 ];
 
 function condensedEvidence(text: string) {
@@ -139,6 +139,7 @@ export function PatternDrawer({
     .filter((item): item is Experience => Boolean(item));
   const orbitAction = pattern.visual_state === "black_hole" ? "Escape this orbit" : "Change the orbit";
   const changedOrbitComplete = changedOrbit !== null && orbitState === "changed";
+  const isRecurring = pattern.status === "recurring";
 
   return (
     <aside
@@ -161,7 +162,11 @@ export function PatternDrawer({
         <header className="reading-heading">
           <h2>{pattern.name}</h2>
           <p className="reading-hypothesis">{pattern.hypothesis}</p>
-          <p className="reading-kicker">Seen in {pattern.evidence_count} supporting moments</p>
+          <p className="reading-kicker">
+            {isRecurring
+              ? `Recurring pattern · Seen in ${pattern.evidence_count} supporting moments`
+              : `Emerging hypothesis · ${pattern.evidence_count} observed ${pattern.evidence_count === 1 ? "moment" : "moments"}`}
+          </p>
         </header>
 
         {fortuneState === "unread" && (
@@ -176,7 +181,7 @@ export function PatternDrawer({
                   size: bounds.width,
                 } : { x: window.innerWidth * 0.64, y: window.innerHeight * 0.62, size: 92 });
               }}
-              disabled={busy || pattern.evidence_count < 3}
+              disabled={busy || !isRecurring}
             >
               <span ref={orbRef} className="oracle-orb" aria-hidden="true">
                 <span className="oracle-orb__gas" />
@@ -191,7 +196,9 @@ export function PatternDrawer({
         )}
 
         <section className="reading-section evidence-reading">
-          <p className="reading-intro">Here are the moments that formed this pattern.</p>
+          <p className="reading-intro">
+            {isRecurring ? "Here are the moments that formed this pattern." : "This moment suggests a possibility. More lived evidence may strengthen or dissolve it."}
+          </p>
           <h3>Supporting evidence</h3>
           <div className="evidence-stack">
             {evidence.map((experience) => <EvidenceDisclosure key={experience.experience_id} experience={experience} />)}
@@ -212,21 +219,30 @@ export function PatternDrawer({
         </section>
 
         <section className="meaning-section" aria-labelledby="meaning-heading">
-          <p id="meaning-heading">Choose what this pattern means now.</p>
-          <nav className="visual-state-control" aria-label="Pattern visual state">
-            {visualOptions.map((option) => (
-              <button
-                key={option.value}
-                className={pattern.visual_state === option.value ? "is-active" : ""}
-                onClick={() => onSetVisualState(option.value)}
-                disabled={busy}
-                aria-label={`${option.label} ${option.hint}`}
-              >
-                <strong>{option.label}</strong>
-                <span>{option.hint}</span>
-              </button>
-            ))}
-          </nav>
+          {isRecurring ? (
+            <>
+              <p id="meaning-heading">Choose what this recurring pattern means now.</p>
+              <nav className="visual-state-control" aria-label="Pattern visual state">
+                {visualOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={pattern.visual_state === option.value ? "is-active" : ""}
+                    onClick={() => onSetVisualState(option.value)}
+                    disabled={busy}
+                    aria-label={`${option.label} ${option.hint}`}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.hint}</span>
+                  </button>
+                ))}
+              </nav>
+            </>
+          ) : (
+            <div className="emerging-pattern-gate" data-pattern-eligibility="possible">
+              <strong id="meaning-heading">Still gathering evidence</strong>
+              <span>Constellation and Black Hole become available only after this response recurs across independent moments.</span>
+            </div>
+          )}
         </section>
 
         <section className="orbit-section">

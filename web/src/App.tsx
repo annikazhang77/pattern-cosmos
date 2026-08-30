@@ -325,6 +325,10 @@ export default function App() {
 
   const setVisualState = async (visualState: VisualState) => {
     if (!selectedPattern) return;
+    if (visualState !== "nebula" && selectedPattern.status !== "recurring") {
+      setError("Keep observing this possible pattern until repeated evidence establishes recurrence.");
+      return;
+    }
     if (visualState === "nebula" || selectedPattern.visual_state === visualState) {
       run(() => api.setVisualState(selectedPattern.pattern_id, visualState), setState);
       return;
