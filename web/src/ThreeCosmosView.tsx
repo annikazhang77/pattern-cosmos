@@ -9,6 +9,7 @@ import type {
   CosmicEventState,
   DefaultFutureProjection,
   FutureChoicePosition,
+  InteractionMode,
   OrbitState,
   Pattern,
 } from "./types";
@@ -30,8 +31,8 @@ interface ThreeCosmosViewProps {
   orbitStates: Record<string, OrbitState>;
   escapeAnimationId: number;
   cosmicEvent: CosmicEventState | null;
-  onMoveFutureChoice: (position: FutureChoicePosition) => void;
   onTrajectoryComplete: () => void;
+  interactionMode: InteractionMode;
 }
 
 type TrajectoryMode = "hidden" | "current" | "animating" | "changed";
@@ -2225,7 +2226,6 @@ function PatternNebula({
   changedOrbit,
   trajectoryMode,
   escapeAnimationId,
-  onMoveFutureChoice,
   onTrajectoryComplete,
 }: {
   pattern: Pattern;
@@ -2239,7 +2239,6 @@ function PatternNebula({
   changedOrbit: ChangedOrbit | null;
   trajectoryMode: TrajectoryMode;
   escapeAnimationId: number;
-  onMoveFutureChoice: (position: FutureChoicePosition) => void;
   onTrajectoryComplete: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -2388,14 +2387,6 @@ function PatternNebula({
 
       <CollapseCore active={pattern.visual_state === "black_hole" && !dimmed} />
 
-      {selected && futureChoice && (
-        <FutureChoiceStar
-          position={futureChoice.position}
-          parent={groupRef}
-          onMove={onMoveFutureChoice}
-        />
-      )}
-
       {trajectoryMode !== "hidden" && (
         <GoldenEscapeTrajectory
           target={changedOrbit?.future_choice_position ?? { x: 2.15, y: 0.72, z: 0.55 }}
@@ -2463,8 +2454,8 @@ function CameraRig({
   useFrame((_, delta) => {
     const orbit = controls.current;
     if (!orbit || transitionStrength.current < 0.002) return;
-    const eventOffset = cosmicEvent?.kind === "CHANGE_ORBIT" ? 1.42 : cosmicEvent?.kind === "BLACK_HOLE" ? 0 : 0.54;
-    const eventDistance = cosmicEvent?.kind === "CHANGE_ORBIT" ? 12.2 : cosmicEvent?.kind === "BLACK_HOLE" ? 7.55 : 9.35;
+    const eventOffset = cosmicEvent?.kind === "CHANGE_ORBIT" ? 1.18 : cosmicEvent?.kind === "CONSTELLATION" ? 0 : cosmicEvent?.kind === "BLACK_HOLE" ? 0 : 0.54;
+    const eventDistance = cosmicEvent?.kind === "CHANGE_ORBIT" ? 11.4 : cosmicEvent?.kind === "CONSTELLATION" ? 2.9 : cosmicEvent?.kind === "BLACK_HOLE" ? 7.55 : 9.35;
     const target = selectedFrame
       ? new THREE.Vector3(...selectedFrame.position)
         .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(eventOffset))
@@ -2488,7 +2479,7 @@ function CameraRig({
       makeDefault
       enableDamping
       dampingFactor={0.065}
-      minDistance={5.8}
+      minDistance={2.65}
       maxDistance={25}
       rotateSpeed={0.42}
       zoomSpeed={0.72}
@@ -2518,6 +2509,20 @@ function CameraRig({
   );
 }
 
+function WarmMainScene() {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => {
+    const warm = () => gl.compile(scene, camera);
+    const idle = window.requestIdleCallback?.(warm, { timeout: 900 });
+    const timer = idle === undefined ? window.setTimeout(warm, 180) : null;
+    return () => {
+      if (idle !== undefined) window.cancelIdleCallback?.(idle);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [camera, gl, scene]);
+  return null;
+}
+
 function Scene({
   patterns,
   selectedPatternId,
@@ -2529,7 +2534,6 @@ function Scene({
   orbitStates,
   escapeAnimationId,
   cosmicEvent,
-  onMoveFutureChoice,
   onTrajectoryComplete,
 }: ThreeCosmosViewProps & { visual: VisualPreset }) {
   const nebulaSpecs = useMemo(() => [visual.main, ...SATELLITE_NEBULAE], [visual]);
@@ -2589,7 +2593,6 @@ function Scene({
             changedOrbit={changedOrbits[pattern.pattern_id] ?? null}
             trajectoryMode={trajectoryMode}
             escapeAnimationId={escapeAnimationId}
-            onMoveFutureChoice={onMoveFutureChoice}
             onTrajectoryComplete={onTrajectoryComplete}
           />
             );
@@ -2602,6 +2605,7 @@ function Scene({
         homeCamera={visual.camera}
         cosmicEvent={cosmicEvent}
       />
+      <WarmMainScene />
       <EffectComposer multisampling={0}>
         <Bloom
           intensity={visual.bloomIntensity}
@@ -2625,8 +2629,8 @@ export function ThreeCosmosView({
   orbitStates,
   escapeAnimationId,
   cosmicEvent,
-  onMoveFutureChoice,
   onTrajectoryComplete,
+  interactionMode,
 }: ThreeCosmosViewProps) {
   const visual = useMemo(resolveVisualPreset, []);
   return (
@@ -2634,7 +2638,7 @@ export function ThreeCosmosView({
       <Canvas
         className="three-cosmos-canvas"
         camera={{ position: visual.camera, fov: visual.fov, near: 0.1, far: 80 }}
-        dpr={[1, 1.25]}
+        dpr={interactionMode === "ORACLE_SEQUENCE" ? [0.65, 0.9] : [1, 1.25]}
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2653,8 +2657,8 @@ export function ThreeCosmosView({
           orbitStates={orbitStates}
           escapeAnimationId={escapeAnimationId}
           cosmicEvent={cosmicEvent}
-          onMoveFutureChoice={onMoveFutureChoice}
           onTrajectoryComplete={onTrajectoryComplete}
+          interactionMode={interactionMode}
         />
       </Canvas>
     </div>

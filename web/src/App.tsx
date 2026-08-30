@@ -72,7 +72,10 @@ export default function App() {
   const [fortuneStates, setFortuneStates] = useState<Record<string, FortuneState>>(storedFortune.fortunes);
   const [orbitStates, setOrbitStates] = useState<Record<string, OrbitState>>(storedFortune.orbits);
   const [oracleSequence, setOracleSequence] = useState<OracleSequenceState | null>(null);
+  const [lastOracleDurationMs, setLastOracleDurationMs] = useState(0);
   const settleTimer = useRef<number | null>(null);
+  const stateRef = useRef(state);
+  const projectionRequests = useRef(new Map<string, ReturnType<typeof api.createProjection>>());
   const importInput = useRef<HTMLInputElement>(null);
   const [showIntro, setShowIntro] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
@@ -104,6 +107,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
     window.localStorage.setItem(fortuneStorageKey, JSON.stringify({
       fortunes: fortuneStates,
       orbits: orbitStates,
@@ -114,6 +121,37 @@ export default function App() {
     () => state.patterns.find((pattern) => pattern.pattern_id === selectedPatternId) ?? null,
     [state.patterns, selectedPatternId],
   );
+
+  const ensureProjection = useCallback((patternId: string) => {
+    if (stateRef.current.trajectory_projections[patternId]) return Promise.resolve(null);
+    const activeRequest = projectionRequests.current.get(patternId);
+    if (activeRequest) return activeRequest;
+    const request = api.createProjection(patternId)
+      .then((result) => {
+        setState((current) => ({
+          ...current,
+          trajectory_projections: {
+            ...current.trajectory_projections,
+            [patternId]: result.projection,
+          },
+          agent_call_count: Math.max(current.agent_call_count, result.state.agent_call_count),
+        }));
+        return result;
+      })
+      .finally(() => projectionRequests.current.delete(patternId));
+    projectionRequests.current.set(patternId, request);
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPattern || selectedPattern.evidence_count < 3) return;
+    const timer = window.setTimeout(() => {
+      void ensureProjection(selectedPattern.pattern_id).catch(() => {
+        // Prefetch is intentionally silent. The Oracle action retries visibly.
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [ensureProjection, selectedPattern?.pattern_id, selectedPattern?.evidence_count]);
 
   const run = async <T,>(operation: () => Promise<T>, apply: (result: T) => void) => {
     setBusy(true);
@@ -161,25 +199,26 @@ export default function App() {
 
   const setVisualState = async (visualState: VisualState) => {
     if (!selectedPattern) return;
-    if (visualState !== "black_hole" || selectedPattern.visual_state === "black_hole") {
+    if (visualState === "nebula" || selectedPattern.visual_state === visualState) {
       run(() => api.setVisualState(selectedPattern.pattern_id, visualState), setState);
       return;
     }
 
     const patternId = selectedPattern.pattern_id;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const isConstellation = visualState === "constellation";
     setBusy(true);
     setError(null);
     setInteractionMode("COSMIC_EVENT_MODE");
-    setCosmicEvent({ kind: "BLACK_HOLE", phase: "PREFRAME", patternId });
+    setCosmicEvent({ kind: isConstellation ? "CONSTELLATION" : "BLACK_HOLE", phase: "PREFRAME", patternId });
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 1050));
+      await delay(reducedMotion ? 30 : isConstellation ? 620 : 1050);
       const nextState = await api.setVisualState(patternId, visualState);
       setState(nextState);
-      setCosmicEvent({ kind: "BLACK_HOLE", phase: "PLAYING", patternId });
-      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 50 : 2800));
-      setCosmicEvent({ kind: "BLACK_HOLE", phase: "SETTLED", patternId });
-      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 700));
+      setCosmicEvent({ kind: isConstellation ? "CONSTELLATION" : "BLACK_HOLE", phase: "PLAYING", patternId });
+      await delay(reducedMotion ? 50 : isConstellation ? 1550 : 2800);
+      setCosmicEvent({ kind: isConstellation ? "CONSTELLATION" : "BLACK_HOLE", phase: "SETTLED", patternId });
+      await delay(reducedMotion ? 30 : isConstellation ? 460 : 700);
       setCosmicEvent(null);
       setInteractionMode("READ_MODE");
     } catch (requestError) {
@@ -199,29 +238,28 @@ export default function App() {
     setError(null);
     setInteractionMode("ORACLE_SEQUENCE");
     setOracleSequence({ patternId, phase: "GATHER", origin });
+    const startedAt = performance.now();
     try {
-      const projectionPromise = state.trajectory_projections[patternId]
-        ? Promise.resolve(null)
-        : api.createProjection(patternId);
+      const projectionPromise = ensureProjection(patternId);
       const ritualPromise = (async () => {
-        await delay(reducedMotion ? 20 : 650);
+        await delay(reducedMotion ? 15 : 220);
         setOracleSequence((current) => current?.patternId === patternId
           ? { ...current, phase: "OPENING" }
           : current);
-        await delay(reducedMotion ? 20 : 1050);
+        await delay(reducedMotion ? 15 : 430);
         setOracleSequence((current) => current?.patternId === patternId
           ? { ...current, phase: "MIST" }
           : current);
-        await delay(reducedMotion ? 20 : 950);
+        await delay(reducedMotion ? 15 : 430);
         setOracleSequence((current) => current?.patternId === patternId
           ? { ...current, phase: "REVEAL" }
           : current);
-        await delay(reducedMotion ? 20 : 650);
+        await delay(reducedMotion ? 15 : 280);
       })();
-      const [result] = await Promise.all([projectionPromise, ritualPromise]);
-      if (result) setState(result.state);
+      await Promise.all([projectionPromise, ritualPromise]);
       setFortuneStates((current) => ({ ...current, [patternId]: "one_year" }));
       setOrbitStates((current) => ({ ...current, [patternId]: "current" }));
+      setLastOracleDurationMs(Math.round(performance.now() - startedAt));
       setOracleSequence(null);
       setInteractionMode("READ_MODE");
     } catch (requestError) {
@@ -260,10 +298,6 @@ export default function App() {
     });
   };
 
-  const moveFutureChoice = (position: FutureChoicePosition) => {
-    setFutureChoice((current) => current ? { ...current, position } : current);
-  };
-
   const confirmChangedOrbit = async () => {
     if (!selectedPattern || !futureChoice || futureChoice.patternId !== selectedPattern.pattern_id) return;
     const patternId = selectedPattern.pattern_id;
@@ -296,7 +330,7 @@ export default function App() {
   };
 
   const finishTrajectoryEvent = useCallback(() => {
-    setCosmicEvent((current) => current?.kind === "CHANGE_ORBIT"
+    setCosmicEvent((current) => current?.kind === "CHANGE_ORBIT" && current.phase === "PLAYING"
       ? (() => {
         setOrbitStates((states) => ({ ...states, [current.patternId]: "changed" }));
         return { ...current, phase: "SETTLED" };
@@ -323,6 +357,7 @@ export default function App() {
       data-interaction-mode={interactionMode}
       data-cosmic-event={cosmicEvent?.kind ?? "NONE"}
       data-cosmic-event-phase={cosmicEvent?.phase ?? "NONE"}
+      data-oracle-duration-ms={lastOracleDurationMs}
     >
       <header className="topbar">
         <div className="brand-lockup">
@@ -371,7 +406,7 @@ export default function App() {
               orbitStates={orbitStates}
               escapeAnimationId={escapeAnimationId}
               cosmicEvent={cosmicEvent}
-              onMoveFutureChoice={moveFutureChoice}
+              interactionMode={interactionMode}
               onTrajectoryComplete={finishTrajectoryEvent}
             />
           ) : (
@@ -412,6 +447,7 @@ export default function App() {
             futureChoice={futureChoice?.patternId === selectedPattern.pattern_id ? futureChoice : null}
             onSeeDefaultFuture={seeDefaultFuture}
             fortuneState={fortuneStates[selectedPattern.pattern_id] ?? "unread"}
+            orbitState={orbitStates[selectedPattern.pattern_id] ?? "hidden"}
             onRevealFartherFuture={revealFartherFuture}
             onChooseAlternative={chooseAlternative}
             onChooseCustomResponse={chooseCustomResponse}

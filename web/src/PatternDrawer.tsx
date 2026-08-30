@@ -8,6 +8,7 @@ import type {
   FortuneState,
   FutureChoicePosition,
   OracleOrigin,
+  OrbitState,
   Pattern,
   VisualState,
 } from "./types";
@@ -29,6 +30,7 @@ interface PatternDrawerProps {
   } | null;
   onSeeDefaultFuture: (origin: OracleOrigin) => void;
   fortuneState: FortuneState;
+  orbitState: OrbitState;
   onRevealFartherFuture: () => void;
   onChooseAlternative: (alternative: AlternativeResponse) => void;
   onChooseCustomResponse: (response: string) => void;
@@ -46,6 +48,13 @@ function condensedEvidence(text: string) {
   const clean = text.replace(/\s+/g, " ").trim();
   const sentence = clean.match(/^.*?[.!?。！？](?:\s|$)/)?.[0]?.trim() ?? clean;
   return sentence.length > 118 ? `${sentence.slice(0, 115).trimEnd()}…` : sentence;
+}
+
+function visualSummary(text: string, maxLength = 176) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const firstTwo = clean.match(/^.*?[.!?。！？](?:\s+.*?[.!?。！？])?/)?.[0]?.trim() ?? clean;
+  const candidate = firstTwo.length > maxLength ? clean : firstTwo;
+  return candidate.length > maxLength ? `${candidate.slice(0, maxLength - 1).trimEnd()}…` : candidate;
 }
 
 function EvidenceDisclosure({
@@ -95,6 +104,7 @@ export function PatternDrawer({
   futureChoice,
   onSeeDefaultFuture,
   fortuneState,
+  orbitState,
   onRevealFartherFuture,
   onChooseAlternative,
   onChooseCustomResponse,
@@ -223,10 +233,15 @@ export function PatternDrawer({
 
               <div className="trajectory-moment">
                 <span>One year</span>
-                <p>{projection.one_year_default_trajectory}</p>
+                <p className="trajectory-summary">{visualSummary(projection.one_year_default_trajectory)}</p>
               </div>
-
-              <p className="orbit-caveat">{projection.uncertainty_evidence_caveat}</p>
+              <details className="reasoning-disclosure">
+                <summary>Read the reasoning</summary>
+                <div>
+                  <p>{projection.one_year_default_trajectory}</p>
+                  <p className="orbit-caveat">{projection.uncertainty_evidence_caveat}</p>
+                </div>
+              </details>
 
               {fortuneState === "one_year" && (
                 <button className="farther-orbit-action" type="button" onClick={onRevealFartherFuture}>
@@ -240,9 +255,15 @@ export function PatternDrawer({
                   <h4>Farther along this orbit</h4>
                 <div className="trajectory-moment">
                   <span>Three years</span>
-                  <p>{projection.three_year_default_trajectory}</p>
+                  <p className="trajectory-summary">{visualSummary(projection.three_year_default_trajectory)}</p>
                 </div>
-                <p className="compounding-copy">{projection.likely_compounding_effect}</p>
+                <details className="reasoning-disclosure">
+                  <summary>Read the reasoning</summary>
+                  <div>
+                    <p>{projection.three_year_default_trajectory}</p>
+                    <p className="compounding-copy">{projection.likely_compounding_effect}</p>
+                  </div>
+                </details>
                 </div>
               )}
 
@@ -263,7 +284,7 @@ export function PatternDrawer({
                       className={futureChoice?.alternativeId === alternative.alternative_id ? "is-active" : ""}
                       onClick={() => onChooseAlternative(alternative)}
                     >
-                      {alternative.response}
+                      <span>{visualSummary(alternative.response, 138)}</span>
                     </button>
                   ))}
                   <label className="custom-response-field">
@@ -281,7 +302,7 @@ export function PatternDrawer({
                   </label>
                   {futureChoice && (
                     <div className="future-choice-confirm">
-                      <p>Move the Future Choice Star, then confirm the direction you want to test.</p>
+                      <p>Confirm this response to let the choice enter the Cosmos.</p>
                       <button onClick={onConfirmChangedOrbit} disabled={busy}>
                         <Sparkle size={16} weight="fill" />
                         Set this new orbit
@@ -291,39 +312,44 @@ export function PatternDrawer({
                 </div>
               )}
 
-              {changedOrbit && fortuneState === "three_year" && (
+              {changedOrbit && fortuneState === "three_year" && orbitState === "changed" && (
                 <div className="changed-orbit-result">
                   <header>
                     <span>Changed Orbit</span>
-                    <h4>A conscious choice changed the visible path.</h4>
+                    <h4>{visualSummary(changedOrbit.changed_orbit.response, 150)}</h4>
                   </header>
-                  <div className="orbit-comparison orbit-comparison--current">
-                    <span>Current Orbit</span>
-                    <p>{changedOrbit.current_orbit.response}</p>
-                  </div>
-                  <ArrowRight size={18} />
-                  <div className="orbit-comparison orbit-comparison--changed">
-                    <span>Changed Orbit</span>
-                    <p>{changedOrbit.changed_orbit.response}</p>
-                  </div>
-                  <dl>
+                  <details className="reasoning-disclosure reasoning-disclosure--changed">
+                    <summary>Read the reasoning</summary>
                     <div>
-                      <dt>What changed</dt>
-                      <dd>{changedOrbit.changed_orbit.what_changed}</dd>
+                      <div className="orbit-comparison orbit-comparison--current">
+                        <span>Current Orbit</span>
+                        <p>{changedOrbit.current_orbit.response}</p>
+                      </div>
+                      <ArrowRight size={18} />
+                      <div className="orbit-comparison orbit-comparison--changed">
+                        <span>Changed Orbit</span>
+                        <p>{changedOrbit.changed_orbit.response}</p>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>What changed</dt>
+                          <dd>{changedOrbit.changed_orbit.what_changed}</dd>
+                        </div>
+                        <div>
+                          <dt>What stayed</dt>
+                          <dd>{changedOrbit.changed_orbit.what_stayed_the_same}</dd>
+                        </div>
+                        <div>
+                          <dt>Likely next effect</dt>
+                          <dd>{changedOrbit.changed_orbit.likely_short_term_effect}</dd>
+                        </div>
+                        <div>
+                          <dt>What may compound</dt>
+                          <dd>{changedOrbit.changed_orbit.likely_long_term_compounding_effect}</dd>
+                        </div>
+                      </dl>
                     </div>
-                    <div>
-                      <dt>What stayed</dt>
-                      <dd>{changedOrbit.changed_orbit.what_stayed_the_same}</dd>
-                    </div>
-                    <div>
-                      <dt>Likely next effect</dt>
-                      <dd>{changedOrbit.changed_orbit.likely_short_term_effect}</dd>
-                    </div>
-                    <div>
-                      <dt>What may compound</dt>
-                      <dd>{changedOrbit.changed_orbit.likely_long_term_compounding_effect}</dd>
-                    </div>
-                  </dl>
+                  </details>
                 </div>
               )}
             </div>

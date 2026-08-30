@@ -101,7 +101,7 @@ export interface OracleSequenceState {
 }
 
 export interface CosmicEventState {
-  kind: "BLACK_HOLE" | "CHANGE_ORBIT";
+  kind: "BLACK_HOLE" | "CHANGE_ORBIT" | "CONSTELLATION";
   phase: "PREFRAME" | "PLAYING" | "SETTLED";
   patternId: string;
 }
