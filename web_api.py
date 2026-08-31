@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from pattern_agent.state import PatternState
 
 ROOT = Path(__file__).resolve().parent
 WEB_STATE_DIR = ROOT / "web_state"
+DEMO_PROJECTION_CACHE_PATH = WEB_STATE_DIR / "sanitized_demo_projection_cache.json"
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "project-4698d4bd-13c6-4d4b-b5d")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 MODEL_ID = os.getenv("PATTERN_AGENT_MODEL", "gemini-3.7-flash")
@@ -56,6 +58,7 @@ class SessionState:
         self.last_import: dict[str, Any] | None = None
         self.trajectory_projections: dict[str, dict[str, Any]] = {}
         self.changed_orbits: dict[str, dict[str, Any]] = {}
+        self.demo_seeded = False
 
     def require_state(self) -> PatternState:
         if not self.loaded or self.state is None:
@@ -64,6 +67,12 @@ class SessionState:
 
     def load_demo(self) -> None:
         # Submission demo is deliberately synthetic. Private spike folders are never read here.
+        # Demo reload resets the world, but a projection is expensive and remains valid when the
+        # seeded evidence is identical. Keep only cache entries that still match below.
+        previous_projections = {
+            **load_demo_projection_cache(),
+            **self.trajectory_projections,
+        }
         base = load_json(ROOT / "base_experiences.json")
         detected = load_json(ROOT / "agent_detected_patterns.json")
         self.state = PatternState(WEB_STATE_DIR, base, [], persist_files=not USE_FIRESTORE)
@@ -81,6 +90,10 @@ class SessionState:
         self.last_routing = None
         self.agent_call_count = 0
         self.last_import = None
+        self.changed_orbits = {}
+        self.demo_seeded = True
+        self.trajectory_projections = previous_projections
+        prune_projection_cache(self)
 
     def start_genesis(self) -> None:
         """Create a real empty personal Cosmos without any seeded patterns."""
@@ -91,6 +104,7 @@ class SessionState:
         self.last_import = None
         self.trajectory_projections = {}
         self.changed_orbits = {}
+        self.demo_seeded = False
 
     def export(self) -> dict[str, Any]:
         return {
@@ -101,6 +115,7 @@ class SessionState:
             "last_import": self.last_import,
             "trajectory_projections": self.trajectory_projections,
             "changed_orbits": self.changed_orbits,
+            "demo_seeded": self.demo_seeded,
         }
 
     @classmethod
@@ -115,6 +130,7 @@ class SessionState:
         session.last_import = payload.get("last_import")
         session.trajectory_projections = dict(payload.get("trajectory_projections", {}))
         session.changed_orbits = dict(payload.get("changed_orbits", {}))
+        session.demo_seeded = bool(payload.get("demo_seeded", False))
         return session
 
     def payload(self) -> dict[str, Any]:
@@ -151,10 +167,31 @@ class SessionState:
 store = FirestoreStateStore(PROJECT_ID) if USE_FIRESTORE else None
 local_sessions: dict[str, SessionState] = {}
 session_locks: dict[str, asyncio.Lock] = {}
+projection_locks: dict[str, asyncio.Lock] = {}
+# Projection calls are independent per pattern, but keep the shared Vertex/ADK budget modest.
+projection_semaphore = asyncio.Semaphore(3)
 
 
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_demo_projection_cache() -> dict[str, dict[str, Any]]:
+    """A server-side cache shared only by the sanitized public demo data."""
+    try:
+        payload = load_json(DEMO_PROJECTION_CACHE_PATH)
+        projections = payload.get("trajectory_projections", {})
+        return dict(projections) if isinstance(projections, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_demo_projection_cache(projections: dict[str, dict[str, Any]]) -> None:
+    WEB_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    DEMO_PROJECTION_CACHE_PATH.write_text(
+        json.dumps({"trajectory_projections": projections}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def normalized_session_id(raw: str | None) -> str:
@@ -378,8 +415,10 @@ async def invoke_orbit_projector(
     pattern: dict[str, Any],
     supporting: list[dict[str, str]],
     contradictions: list[dict[str, str]],
-) -> tuple[dict[str, Any], int]:
+) -> tuple[dict[str, Any], int, dict[str, Any]]:
+    started_at = time.perf_counter()
     agent = build_projection_agent(MODEL_ID)
+    agent_ready_at = time.perf_counter()
     session_service = InMemorySessionService()
     adk_session_id = f"project-{pattern['pattern_id'].replace('pattern-', '')[:40]}"
     await session_service.create_session(
@@ -391,6 +430,7 @@ async def invoke_orbit_projector(
         parts=[types.Part(text=projection_prompt(pattern, supporting, contradictions))],
     )
     model_calls = 0
+    model_event_offsets_ms: list[int] = []
     response_text = ""
     structured_output: Any | None = None
     async for event in runner.run_async(
@@ -401,6 +441,7 @@ async def invoke_orbit_projector(
             continue
         if getattr(event_content, "role", None) == "model":
             model_calls += 1
+            model_event_offsets_ms.append(round((time.perf_counter() - started_at) * 1000))
         if getattr(event, "output", None) is not None:
             structured_output = event.output
         if event_content is None:
@@ -426,7 +467,14 @@ async def invoke_orbit_projector(
     invalid_ids = set(projection["evidence_ids"]) - valid_evidence_ids
     if invalid_ids:
         raise RuntimeError(f"OrbitProjector cited unknown evidence IDs: {sorted(invalid_ids)}")
-    return projection, model_calls
+    completed_at = time.perf_counter()
+    return projection, model_calls, {
+        "agent_setup_ms": round((agent_ready_at - started_at) * 1000),
+        "runner_ms": round((completed_at - agent_ready_at) * 1000),
+        "total_generation_ms": round((completed_at - started_at) * 1000),
+        "model_event_offsets_ms": model_event_offsets_ms,
+        "model_request_count": model_calls,
+    }
 
 
 def principle_for(pattern: dict[str, Any]) -> str:
@@ -466,7 +514,7 @@ def get_state(x_cosmos_session: str | None = Header(default=None)) -> dict[str, 
 @app.post("/api/demo/load")
 def load_demo(x_cosmos_session: str | None = Header(default=None)) -> dict[str, Any]:
     session_id = normalized_session_id(x_cosmos_session)
-    session = SessionState()
+    session = load_session(session_id)
     session.load_demo()
     save_session(session_id, session)
     if store:
@@ -532,6 +580,9 @@ async def import_file(
         if imported_rows:
             discoveries, calls = await invoke_pattern_discovery(state, imported_rows)
             session.agent_call_count += calls
+        # Evidence changed: stale futures are not allowed to survive as candidates
+        # for a different version of the same pattern.
+        prune_projection_cache(session)
         session.last_import = {
             "source_file": Path(file.filename or "import.txt").name,
             "parsed": len(parsed["experiences"]),
@@ -584,6 +635,9 @@ async def add_experience(
             raise HTTPException(status_code=502, detail=f"PatternCurator failed: {exc}") from exc
         session.agent_call_count += calls
         session.last_routing = {**routing, "model": MODEL_ID, "model_calls": calls}
+        # The client will prewarm a fresh projection if this routing made (or
+        # strengthened) a recurring pattern. Never retain the prior evidence version.
+        prune_projection_cache(session)
         save_session(session_id, session)
         if store:
             store.log_run(session_id, {"kind": "ROUTE_EXPERIENCE", **session.last_routing})
@@ -606,68 +660,138 @@ def update_visual_state(
     return session.payload()
 
 
+def projection_evidence_version(pattern: dict[str, Any]) -> str:
+    supporting = "|".join(str(item) for item in pattern.get("supporting_experience_ids", []))
+    contradicting = "|".join(str(item) for item in pattern.get("contradicting_experience_ids", []))
+    return f"supporting:{supporting};contradicting:{contradicting}"
+
+
+def prune_projection_cache(session: SessionState) -> None:
+    """Retain only projections whose exact evidence is still a recurring pattern."""
+    if not session.loaded or session.state is None:
+        session.trajectory_projections = {}
+        return
+    valid_versions = {
+        pattern["pattern_id"]: projection_evidence_version(pattern)
+        for pattern in session.state.patterns()
+        if pattern.get("status") == "recurring" and pattern.get("evidence_count", 0) >= 3
+    }
+    session.trajectory_projections = {
+        pattern_id: projection
+        for pattern_id, projection in session.trajectory_projections.items()
+        if projection.get("evidence_version") == valid_versions.get(pattern_id)
+    }
+
+
+def projection_snapshot(
+    session: SessionState, pattern_id: str
+) -> tuple[dict[str, Any], list[dict[str, str]], list[dict[str, str]], str]:
+    state = session.require_state()
+    try:
+        pattern = next(row for row in state.patterns() if row["pattern_id"] == pattern_id)
+    except StopIteration as exc:
+        raise HTTPException(status_code=404, detail="Unknown pattern") from exc
+    evidence_version = projection_evidence_version(pattern)
+    experience_map = {row["experience_id"]: row for row in state.experience_rows()}
+    supporting = [
+        experience_map[item_id]
+        for item_id in pattern["supporting_experience_ids"]
+        if item_id in experience_map
+    ]
+    contradictions = [
+        experience_map[item_id]
+        for item_id in pattern["contradicting_experience_ids"]
+        if item_id in experience_map
+    ]
+    if pattern.get("status") != "recurring" or len(supporting) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Default Future requires a recurring pattern with at least three supporting experiences",
+        )
+    return pattern, supporting, contradictions, evidence_version
+
+
 @app.post("/api/patterns/{pattern_id}/projection")
 async def create_default_future(
     pattern_id: str, x_cosmos_session: str | None = Header(default=None)
 ) -> dict[str, Any]:
     session_id = normalized_session_id(x_cosmos_session)
-    lock = session_locks.setdefault(session_id, asyncio.Lock())
-    async with lock:
-        session = load_session(session_id)
-        state = session.require_state()
-        existing = session.trajectory_projections.get(pattern_id)
-        if existing:
-            return {"projection": existing, "state": session.payload(), "cached": True}
+    request_started_at = time.perf_counter()
+    state_lock = session_locks.setdefault(session_id, asyncio.Lock())
+    pattern_lock = projection_locks.setdefault(f"{session_id}:{pattern_id}", asyncio.Lock())
+
+    # Pattern-specific locking lets different mature patterns prewarm in parallel while
+    # coalescing duplicate calls for the same evidence version.
+    async with pattern_lock:
+        async with state_lock:
+            session = load_session(session_id)
+            pattern, supporting, contradictions, evidence_version = projection_snapshot(session, pattern_id)
+            existing = session.trajectory_projections.get(pattern_id)
+            if existing and existing.get("evidence_version") == evidence_version:
+                return {
+                    "projection": existing,
+                    "state": session.payload(),
+                    "cached": True,
+                    "timing": {
+                        "cache_lookup_ms": round((time.perf_counter() - request_started_at) * 1000),
+                        "total_ms": round((time.perf_counter() - request_started_at) * 1000),
+                        "model_request_count": 0,
+                    },
+                }
+
         try:
-            pattern = next(row for row in state.patterns() if row["pattern_id"] == pattern_id)
-        except StopIteration as exc:
-            raise HTTPException(status_code=404, detail="Unknown pattern") from exc
-        experience_map = {
-            row["experience_id"]: row for row in state.experience_rows()
-        }
-        supporting = [
-            experience_map[item_id]
-            for item_id in pattern["supporting_experience_ids"]
-            if item_id in experience_map
-        ]
-        contradictions = [
-            experience_map[item_id]
-            for item_id in pattern["contradicting_experience_ids"]
-            if item_id in experience_map
-        ]
-        if len(supporting) < 3:
-            raise HTTPException(
-                status_code=400,
-                detail="Default Future requires at least three supporting experiences",
-            )
-        try:
-            projection, calls = await invoke_orbit_projector(
-                pattern, supporting, contradictions
-            )
+            async with projection_semaphore:
+                projection, calls, generation_timing = await invoke_orbit_projector(
+                    pattern, supporting, contradictions
+                )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"OrbitProjector failed: {exc}") from exc
-        stored_projection = {
-            **projection,
-            "pattern_id": pattern_id,
-            "model": MODEL_ID,
-            "model_calls": calls,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        session.trajectory_projections[pattern_id] = stored_projection
-        session.agent_call_count += calls
-        save_session(session_id, session)
-        if store:
-            store.log_run(
-                session_id,
-                {
-                    "kind": "PROJECT_DEFAULT_FUTURE",
-                    "pattern_id": pattern_id,
-                    "evidence_ids": stored_projection["evidence_ids"],
-                    "model": MODEL_ID,
-                    "model_calls": calls,
+
+        async with state_lock:
+            session = load_session(session_id)
+            _, _, _, current_evidence_version = projection_snapshot(session, pattern_id)
+            if current_evidence_version != evidence_version:
+                # New evidence landed while Gemini was working. Do not write a stale future.
+                raise HTTPException(status_code=409, detail="Pattern evidence changed while projection was generated")
+            stored_projection = {
+                **projection,
+                "pattern_id": pattern_id,
+                "model": MODEL_ID,
+                "model_calls": calls,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_version": evidence_version,
+                "generation_timing": generation_timing,
+            }
+            session.trajectory_projections[pattern_id] = stored_projection
+            session.agent_call_count += calls
+            save_session(session_id, session)
+            if session.demo_seeded:
+                # The seeded Cosmos is public/sanitized and identical for every demo
+                # session, so its validated model result can be reused tomorrow without
+                # making each recorded demo pay another 20+ second model wait.
+                save_demo_projection_cache(session.trajectory_projections)
+            if store:
+                store.log_run(
+                    session_id,
+                    {
+                        "kind": "PROJECT_DEFAULT_FUTURE",
+                        "pattern_id": pattern_id,
+                        "evidence_ids": stored_projection["evidence_ids"],
+                        "model": MODEL_ID,
+                        "model_calls": calls,
+                        "timing": generation_timing,
+                    },
+                )
+            return {
+                "projection": stored_projection,
+                "state": session.payload(),
+                "cached": False,
+                "timing": {
+                    "cache_lookup_ms": 0,
+                    **generation_timing,
+                    "total_ms": round((time.perf_counter() - request_started_at) * 1000),
                 },
-            )
-        return {"projection": stored_projection, "state": session.payload(), "cached": False}
+            }
 
 
 @app.post("/api/patterns/{pattern_id}/changed-orbit")

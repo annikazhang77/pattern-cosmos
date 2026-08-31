@@ -11,13 +11,17 @@ import type {
   AlternativeResponse,
   AppState,
   CosmicEventState,
+  DrawnOrbitPath,
   FortuneState,
   GenesisBirth,
+  FutureChoiceDraft,
   FutureChoicePosition,
   InteractionMode,
+  OrbitDrawStage,
   OracleOrigin,
   OracleSequenceState,
   OrbitState,
+  Pattern,
   VisualState,
 } from "./types";
 
@@ -49,36 +53,61 @@ const emptyState: AppState = {
   last_import: null,
 };
 
-interface FutureChoiceDraft {
-  patternId: string;
-  alternativeId: string;
-  customResponse?: string;
-  position: FutureChoicePosition;
-}
+// v4 stores the exact user-drawn path. Future Seed data is normalized into the
+// same record so existing hand-drawn paths keep working without reviving the
+// old predetermined curve.
+const fortuneStorageKey = "pattern-cosmos-fortune-state-v4-drawn-orbit";
+const staleFortuneStorageKeys = [
+  "pattern-cosmos-fortune-state-v2",
+  "pattern-cosmos-fortune-state-v3-contract",
+];
 
-// v3 intentionally invalidates interaction state written by the regressed
-// polish build. New user-triggered progress still persists across refreshes.
-const fortuneStorageKey = "pattern-cosmos-fortune-state-v3-contract";
-const staleFortuneStorageKeys = ["pattern-cosmos-fortune-state-v2"];
-
-interface StoredFortuneState {
-  fortunes: Record<string, FortuneState>;
+interface StoredWorldState {
   orbits: Record<string, OrbitState>;
+  drawnOrbits: Record<string, DrawnOrbitPath>;
 }
 
-function readStoredFortuneState(): StoredFortuneState {
+function readStoredWorldState(): StoredWorldState {
+  if (productMode.isolatedFresh) return { orbits: {}, drawnOrbits: {} };
   try {
     staleFortuneStorageKeys.forEach((key) => window.localStorage.removeItem(key));
     const stored = window.localStorage.getItem(fortuneStorageKey);
-    if (!stored) return { fortunes: {}, orbits: {} };
-    const parsed = JSON.parse(stored) as Partial<StoredFortuneState>;
-    return { fortunes: parsed.fortunes ?? {}, orbits: parsed.orbits ?? {} };
+    if (!stored) return { orbits: {}, drawnOrbits: {} };
+    const parsed = JSON.parse(stored) as Partial<StoredWorldState>;
+    const drawnOrbits = Object.fromEntries(
+      Object.entries(parsed.drawnOrbits ?? {}).map(([patternId, orbit]) => {
+        const bornAt = orbit.completed_at ?? new Date().toISOString();
+        return [patternId, {
+          ...orbit,
+          future_seed: orbit.future_seed ?? {
+            position: orbit.endpoint,
+            born_at: bornAt,
+            seed: Array.from(patternId).reduce((value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0, 2166136261),
+          },
+        }];
+      }),
+    ) as Record<string, DrawnOrbitPath>;
+    // Only a user-created changed orbit belongs to the persistent cosmos.
+    // `unread / one_year / three_year` and a merely revealed current orbit are
+    // transient reading stages and must never bypass a fresh Oracle ritual.
+    const orbits = Object.fromEntries(
+      Object.keys(drawnOrbits).map((patternId) => [patternId, "changed"]),
+    ) as Record<string, OrbitState>;
+    return { orbits, drawnOrbits };
   } catch {
-    return { fortunes: {}, orbits: {} };
+    return { orbits: {}, drawnOrbits: {} };
   }
 }
 
 const delay = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function patternEvidenceVersion(pattern: Pattern) {
+  return `supporting:${pattern.supporting_experience_ids.join("|")};contradicting:${pattern.contradicting_experience_ids.join("|")}`;
+}
+
+function projectionMatchesPattern(pattern: Pattern, evidenceVersion?: string) {
+  return evidenceVersion === patternEvidenceVersion(pattern);
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>(emptyState);
@@ -86,32 +115,51 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [futureChoice, setFutureChoice] = useState<FutureChoiceDraft | null>(null);
-  const [escapeAnimationId, setEscapeAnimationId] = useState(0);
+  const [orbitDrawStage, setOrbitDrawStage] = useState<OrbitDrawStage>("idle");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("READ_MODE");
   const [cosmicEvent, setCosmicEvent] = useState<CosmicEventState | null>(null);
-  const storedFortune = useMemo(readStoredFortuneState, []);
-  const [fortuneStates, setFortuneStates] = useState<Record<string, FortuneState>>(storedFortune.fortunes);
-  const [orbitStates, setOrbitStates] = useState<Record<string, OrbitState>>(storedFortune.orbits);
+  const storedWorld = useMemo(readStoredWorldState, []);
+  const [fortuneStates, setFortuneStates] = useState<Record<string, FortuneState>>({});
+  const [orbitStates, setOrbitStates] = useState<Record<string, OrbitState>>(storedWorld.orbits);
+  const [drawnOrbits, setDrawnOrbits] = useState<Record<string, DrawnOrbitPath>>(storedWorld.drawnOrbits);
   const [oracleSequence, setOracleSequence] = useState<OracleSequenceState | null>(null);
   const [lastOracleDurationMs, setLastOracleDurationMs] = useState(0);
+  const [lastFutureRevealDelayMs, setLastFutureRevealDelayMs] = useState(0);
   const [hydrating, setHydrating] = useState(true);
   const [genesisBirths, setGenesisBirths] = useState<GenesisBirth[]>([]);
   const [emergingPatternId, setEmergingPatternId] = useState<string | null>(null);
   const [genesisMessage, setGenesisMessage] = useState<string | null>(null);
   const [genesisDemoStep, setGenesisDemoStep] = useState(0);
-  const { muted, play: playGenesisCue, toggleMuted, unlock: unlockAudio } = useGenesisAudio();
+  const {
+    muted,
+    play: playGenesisCue,
+    toggleMuted,
+    unlock: unlockAudio,
+    beginIntroMusic,
+    duckMusic,
+    startOrbitDrag,
+    updateOrbitDrag,
+    stopOrbitDrag,
+  } = useGenesisAudio();
   const settleTimer = useRef<number | null>(null);
   const stateRef = useRef(state);
   const projectionRequests = useRef(new Map<string, ReturnType<typeof api.createProjection>>());
+  const projectionWarmFailures = useRef(new Set<string>());
+  const oracleProjectionRequest = useRef<{ patternId: string; request: ReturnType<typeof api.createProjection> } | null>(null);
+  const oracleTraceCompleting = useRef(false);
   const projectionEpoch = useRef(0);
   const genesisTimers = useRef<number[]>([]);
   const importInput = useRef<HTMLInputElement>(null);
-  const [showIntro, setShowIntro] = useState(() => {
+  const [introRequested] = useState(() => {
     const introMode = new URLSearchParams(window.location.search).get("intro");
     if (introMode === "0") return false;
     if (introMode === "1") return true;
     return window.sessionStorage.getItem("pattern-cosmos-intro-seen") !== "1";
   });
+  const [showIntro, setShowIntro] = useState(false);
+  const [entryGate, setEntryGate] = useState<"none" | "checking" | "blocked">(
+    () => introRequested ? "checking" : "none",
+  );
 
   const finishIntro = useCallback(() => {
     window.sessionStorage.setItem("pattern-cosmos-intro-seen", "1");
@@ -119,10 +167,40 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (entryGate !== "checking") return;
+    let active = true;
+    void beginIntroMusic().then((started) => {
+      if (!active) return;
+      if (started) {
+        setEntryGate("none");
+        setShowIntro(true);
+      } else {
+        setEntryGate("blocked");
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [beginIntroMusic, entryGate]);
+
+  const beginGatedIntro = useCallback(() => {
+    if (entryGate !== "blocked") return;
+    // `beginIntroMusic` calls HTMLAudioElement.play synchronously while this
+    // pointer/key gesture is still trusted; the Intro starts only once that
+    // same first-piano-note attempt has been made.
+    void beginIntroMusic().then((started) => {
+      if (!started) return;
+      void unlockAudio(false);
+      setEntryGate("none");
+      setShowIntro(true);
+    });
+  }, [beginIntroMusic, entryGate, unlockAudio]);
+
+  useEffect(() => {
     const bootstrap = async () => {
       let nextState = productMode.seededDemo
         ? await api.loadDemo()
-        : productMode.genesisDemo
+        : productMode.genesisDemo || productMode.isolatedFresh
           ? await api.startGenesis()
           : await api.state();
       if (!nextState.loaded) nextState = await api.startGenesis();
@@ -152,20 +230,36 @@ export default function App() {
   }, [state]);
 
   useEffect(() => {
+    if (productMode.isolatedFresh) return;
+    const persistentOrbits = Object.fromEntries(
+      Object.keys(drawnOrbits).map((patternId) => [patternId, "changed"]),
+    );
     window.localStorage.setItem(fortuneStorageKey, JSON.stringify({
-      fortunes: fortuneStates,
-      orbits: orbitStates,
+      orbits: persistentOrbits,
+      drawnOrbits,
     }));
-  }, [fortuneStates, orbitStates]);
+  }, [drawnOrbits]);
 
   const selectedPattern = useMemo(
     () => state.patterns.find((pattern) => pattern.pattern_id === selectedPatternId) ?? null,
     [state.patterns, selectedPatternId],
   );
+  const selectedProjectionReady = selectedPattern
+    ? projectionMatchesPattern(
+      selectedPattern,
+      state.trajectory_projections[selectedPattern.pattern_id]?.evidence_version,
+    )
+    : false;
 
-  const ensureProjection = useCallback((patternId: string) => {
-    if (stateRef.current.trajectory_projections[patternId]) return Promise.resolve(null);
-    const activeRequest = projectionRequests.current.get(patternId);
+  const ensureProjection = useCallback((pattern: Pattern) => {
+    const patternId = pattern.pattern_id;
+    const evidenceVersion = patternEvidenceVersion(pattern);
+    const existing = stateRef.current.trajectory_projections[patternId];
+    if (existing && projectionMatchesPattern(pattern, existing.evidence_version)) {
+      return Promise.resolve({ projection: existing, state: stateRef.current, cached: true });
+    }
+    const requestKey = `${patternId}:${evidenceVersion}`;
+    const activeRequest = projectionRequests.current.get(requestKey);
     if (activeRequest) return activeRequest;
     const requestEpoch = projectionEpoch.current;
     const request = api.createProjection(patternId)
@@ -181,20 +275,44 @@ export default function App() {
         }));
         return result;
       })
-      .finally(() => projectionRequests.current.delete(patternId));
-    projectionRequests.current.set(patternId, request);
+      .finally(() => projectionRequests.current.delete(requestKey));
+    projectionRequests.current.set(requestKey, request);
     return request;
   }, []);
 
   useEffect(() => {
-    if (!selectedPattern || selectedPattern.evidence_count < 3) return;
-    const timer = window.setTimeout(() => {
-      void ensureProjection(selectedPattern.pattern_id).catch(() => {
-        // Prefetch is intentionally silent. The Oracle action retries visibly.
-      });
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [ensureProjection, selectedPattern?.pattern_id, selectedPattern?.evidence_count]);
+    // Projection is world preparation, not a step in opening a reading. Start it as
+    // soon as a real recurring pattern is present: on demo/returning-Cosmos load and
+    // immediately after Genesis routing upgrades a pattern to recurrence.
+    const queue = state.patterns.filter((pattern) => {
+      if (pattern.status !== "recurring" || pattern.evidence_count < 3) return false;
+      const evidenceVersion = patternEvidenceVersion(pattern);
+      const cached = state.trajectory_projections[pattern.pattern_id];
+      return !projectionMatchesPattern(pattern, cached?.evidence_version)
+        && !projectionWarmFailures.current.has(`${pattern.pattern_id}:${evidenceVersion}`);
+    });
+    if (!queue.length) return;
+
+    let cancelled = false;
+    const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
+      while (!cancelled) {
+        const pattern = queue.shift();
+        if (!pattern) return;
+        const requestKey = `${pattern.pattern_id}:${patternEvidenceVersion(pattern)}`;
+        try {
+          await ensureProjection(pattern);
+        } catch {
+          // A background warmup must never surface an error or flood retries. Oracle
+          // can still retry its own pattern deliberately if this request failed.
+          projectionWarmFailures.current.add(requestKey);
+        }
+      }
+    });
+    void Promise.all(workers);
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureProjection, state.patterns, state.trajectory_projections]);
 
   const run = async <T,>(operation: () => Promise<T>, apply: (result: T) => void) => {
     setBusy(true);
@@ -208,14 +326,38 @@ export default function App() {
     }
   };
 
+  const openPattern = useCallback((patternId: string) => {
+    // A pattern's evidence, visual identity, cached projection, changed orbit,
+    // and Future Seed belong to the world. Reading progress does not. Every
+    // fresh focus therefore starts at READ and requires the Oracle again.
+    setFortuneStates((current) => ({ ...current, [patternId]: "unread" }));
+    setOrbitStates((current) => {
+      const next = { ...current };
+      if (drawnOrbits[patternId]) next[patternId] = "changed";
+      else delete next[patternId];
+      return next;
+    });
+    setFutureChoice(null);
+    setOrbitDrawStage("idle");
+    setOracleSequence(null);
+    oracleProjectionRequest.current = null;
+    oracleTraceCompleting.current = false;
+    setCosmicEvent(null);
+    setInteractionMode("READ_MODE");
+    setSelectedPatternId(patternId);
+  }, [drawnOrbits]);
+
   const loadDemo = () => run(api.loadDemo, (nextState) => {
     projectionEpoch.current += 1;
     projectionRequests.current.clear();
+    projectionWarmFailures.current.clear();
     setState(nextState);
     setSelectedPatternId(null);
     setFortuneStates({});
     setOrbitStates({});
+    setDrawnOrbits({});
     setFutureChoice(null);
+    setOrbitDrawStage("idle");
     setOracleSequence(null);
     setCosmicEvent(null);
     setInteractionMode("READ_MODE");
@@ -226,10 +368,16 @@ export default function App() {
   const resetGenesis = () => run(api.startGenesis, (nextState) => {
     projectionEpoch.current += 1;
     projectionRequests.current.clear();
+    projectionWarmFailures.current.clear();
     setState(nextState);
     setSelectedPatternId(null);
     setFortuneStates({});
     setOrbitStates({});
+    setDrawnOrbits({});
+    setFutureChoice(null);
+    setOrbitDrawStage("idle");
+    setCosmicEvent(null);
+    setInteractionMode("READ_MODE");
     setGenesisBirths([]);
     setEmergingPatternId(null);
     setGenesisMessage(null);
@@ -319,7 +467,9 @@ export default function App() {
     if (!file) return;
     run(() => api.importFile(file), ({ state: nextState }) => {
       setState(nextState);
-      setSelectedPatternId(nextState.last_routing?.target_pattern_id ?? null);
+      const importedPatternId = nextState.last_routing?.target_pattern_id ?? null;
+      if (importedPatternId) openPattern(importedPatternId);
+      else setSelectedPatternId(null);
     });
   };
 
@@ -363,46 +513,88 @@ export default function App() {
     }
   };
 
-  const seeDefaultFuture = async (origin: OracleOrigin) => {
+  const seeDefaultFuture = (origin: OracleOrigin) => {
     if (!selectedPattern) return;
     const patternId = selectedPattern.pattern_id;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    void unlockAudio().then(() => duckMusic(980));
     setBusy(true);
     setError(null);
     setInteractionMode("ORACLE_SEQUENCE");
     setOracleSequence({ patternId, phase: "GATHER", origin });
-    const startedAt = performance.now();
-    try {
-      const projectionPromise = ensureProjection(patternId);
-      const ritualPromise = (async () => {
+    oracleTraceCompleting.current = false;
+    oracleProjectionRequest.current = {
+      patternId,
+      request: ensureProjection(selectedPattern),
+    };
+    void (async () => {
+      try {
         await delay(reducedMotion ? 15 : 220);
         setOracleSequence((current) => current?.patternId === patternId
           ? { ...current, phase: "OPENING" }
           : current);
-        await delay(reducedMotion ? 15 : 430);
+        await delay(reducedMotion ? 15 : 520);
         setOracleSequence((current) => current?.patternId === patternId
-          ? { ...current, phase: "MIST" }
+          ? { ...current, phase: "TRACE" }
           : current);
-        await delay(reducedMotion ? 15 : 430);
-        setOracleSequence((current) => current?.patternId === patternId
-          ? { ...current, phase: "REVEAL" }
-          : current);
-        await delay(reducedMotion ? 15 : 280);
-      })();
-      await Promise.all([projectionPromise, ritualPromise]);
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "Something went wrong");
+        setOracleSequence(null);
+        setInteractionMode("READ_MODE");
+        setBusy(false);
+      }
+    })();
+  };
+
+  const completeOracleTrace = useCallback(async () => {
+    const sequence = oracleSequence;
+    if (!sequence || sequence.phase !== "TRACE" || oracleTraceCompleting.current) return;
+    const patternId = sequence.patternId;
+    const pattern = stateRef.current.patterns.find((candidate) => candidate.pattern_id === patternId);
+    if (!pattern) return;
+    oracleTraceCompleting.current = true;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const startedAt = performance.now();
+    try {
+      setOracleSequence((current) => current?.patternId === patternId
+        ? { ...current, phase: "COMPLETE" }
+        : current);
+      duckMusic(1120);
+      await delay(reducedMotion ? 20 : 190);
+      setOracleSequence((current) => current?.patternId === patternId
+        ? { ...current, phase: "MIST" }
+        : current);
+      const projectionRequest = oracleProjectionRequest.current?.patternId === patternId
+        ? oracleProjectionRequest.current.request
+        : ensureProjection(pattern);
+      await Promise.all([projectionRequest, delay(reducedMotion ? 25 : 390)]);
+      setOracleSequence((current) => current?.patternId === patternId
+        ? { ...current, phase: "REVEAL" }
+        : current);
+      await delay(reducedMotion ? 25 : 270);
+      const mistCompletedAt = performance.now();
       setFortuneStates((current) => ({ ...current, [patternId]: "one_year" }));
       setOrbitStates((current) => ({ ...current, [patternId]: "current" }));
       setLastOracleDurationMs(Math.round(performance.now() - startedAt));
       setOracleSequence(null);
       setInteractionMode("READ_MODE");
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const future = document.querySelector<HTMLElement>(`.default-future[data-pattern-id="${patternId}"]`);
+          future?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+          setLastFutureRevealDelayMs(Math.round(performance.now() - mistCompletedAt));
+        });
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Something went wrong");
       setOracleSequence(null);
       setInteractionMode("READ_MODE");
     } finally {
+      oracleProjectionRequest.current = null;
+      oracleTraceCompleting.current = false;
       setBusy(false);
     }
-  };
+  }, [duckMusic, ensureProjection, oracleSequence]);
 
   const revealFartherFuture = () => {
     if (!selectedPattern) return;
@@ -412,72 +604,114 @@ export default function App() {
     }));
   };
 
-  const chooseAlternative = (alternative: AlternativeResponse) => {
+  const beginOrbitDrawing = (alternativeId: string, customResponse?: string) => {
     if (!selectedPattern) return;
-    setFutureChoice({
-      patternId: selectedPattern.pattern_id,
-      alternativeId: alternative.alternative_id,
-      position: { x: 2.15, y: 0.72, z: 0.55 },
-    });
+    const patternId = selectedPattern.pattern_id;
+    const blackHole = selectedPattern.visual_state === "black_hole";
+    const origin = blackHole
+      ? { x: 0.03, y: 0.01, z: 1.03 }
+      : { x: 0.38, y: -0.1, z: 1.08 };
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setFutureChoice({ patternId, alternativeId, customResponse, position: origin });
+    setError(null);
+    setBusy(true);
+    setInteractionMode("COSMIC_EVENT_MODE");
+    setOrbitDrawStage("preframe");
+    setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PREFRAME", patternId });
+    void (async () => {
+      await delay(reducedMotion ? 30 : 720);
+      setCosmicEvent((current) => current?.kind === "CHANGE_ORBIT" && current.patternId === patternId
+        ? { ...current, phase: "PLAYING" }
+        : current);
+      setOrbitDrawStage("ready");
+      setBusy(false);
+    })();
+  };
+
+  const chooseAlternative = (alternative: AlternativeResponse) => {
+    beginOrbitDrawing(alternative.alternative_id);
   };
 
   const chooseCustomResponse = (response: string) => {
-    if (!selectedPattern) return;
-    setFutureChoice({
-      patternId: selectedPattern.pattern_id,
-      alternativeId: "custom-response",
-      customResponse: response,
-      position: { x: 2.15, y: 0.72, z: 0.55 },
-    });
+    beginOrbitDrawing("custom-response", response);
   };
 
-  const confirmChangedOrbit = async () => {
+  const startDrawnOrbit = useCallback(() => {
+    setOrbitDrawStage("drawing");
+    void playGenesisCue("choice_pickup");
+    void startOrbitDrag();
+  }, [playGenesisCue, startOrbitDrag]);
+
+  const cancelDrawnOrbit = useCallback(() => {
+    stopOrbitDrag(false);
+    setOrbitDrawStage("ready");
+  }, [stopOrbitDrag]);
+
+  const completeDrawnOrbit = useCallback(async (
+    points: FutureChoicePosition[],
+    endpoint: FutureChoicePosition,
+  ) => {
     if (!selectedPattern || !futureChoice || futureChoice.patternId !== selectedPattern.pattern_id) return;
     const patternId = selectedPattern.pattern_id;
     const choice = futureChoice;
+    const blackHole = selectedPattern.visual_state === "black_hole";
+    const completedAt = new Date().toISOString();
+    const drawnOrbit: DrawnOrbitPath = {
+      pattern_id: patternId,
+      points,
+      endpoint,
+      future_seed: {
+        position: endpoint,
+        born_at: completedAt,
+        seed: Array.from(`${patternId}:${completedAt}`).reduce(
+          (value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0,
+          2166136261,
+        ),
+      },
+      black_hole: blackHole,
+      completed_at: completedAt,
+    };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setOrbitDrawStage("blooming");
     setBusy(true);
-    setError(null);
-    setInteractionMode("COSMIC_EVENT_MODE");
-    setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PREFRAME", patternId });
+    stopOrbitDrag(false);
+    setFutureChoice({ ...choice, position: endpoint });
+    setDrawnOrbits((current) => ({ ...current, [patternId]: drawnOrbit }));
     try {
       const [result] = await Promise.all([
         api.confirmChangedOrbit(
-        selectedPattern.pattern_id,
+          patternId,
           choice.alternativeId,
-          choice.position,
+          endpoint,
           choice.customResponse,
         ),
-        new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 30 : 760)),
+        delay(reducedMotion ? 40 : 2250),
       ]);
+      await playGenesisCue("choice_resolve");
       setState(result.state);
+      setOrbitStates((current) => ({ ...current, [patternId]: "changed" }));
       setFutureChoice(null);
-      setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PLAYING", patternId });
-      setEscapeAnimationId((value) => value + 1);
+      setOrbitDrawStage("idle");
+      setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "SETTLED", patternId });
+      setBusy(false);
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+      settleTimer.current = window.setTimeout(() => {
+        setCosmicEvent(null);
+        setInteractionMode("READ_MODE");
+        settleTimer.current = null;
+      }, reducedMotion ? 30 : 520);
     } catch (requestError) {
+      setDrawnOrbits((current) => {
+        const next = { ...current };
+        delete next[patternId];
+        return next;
+      });
       setError(requestError instanceof Error ? requestError.message : "Something went wrong");
-      setCosmicEvent(null);
-      setInteractionMode("READ_MODE");
+      setOrbitDrawStage("ready");
+      setCosmicEvent({ kind: "CHANGE_ORBIT", phase: "PLAYING", patternId });
       setBusy(false);
     }
-  };
-
-  const finishTrajectoryEvent = useCallback(() => {
-    setCosmicEvent((current) => current?.kind === "CHANGE_ORBIT" && current.phase === "PLAYING"
-      ? (() => {
-        setOrbitStates((states) => ({ ...states, [current.patternId]: "changed" }));
-        return { ...current, phase: "SETTLED" };
-      })()
-      : current);
-    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    settleTimer.current = window.setTimeout(() => {
-      setCosmicEvent(null);
-      setInteractionMode("READ_MODE");
-      setBusy(false);
-      settleTimer.current = null;
-    }, reducedMotion ? 30 : 850);
-  }, []);
+  }, [futureChoice, playGenesisCue, selectedPattern, stopOrbitDrag]);
 
   const createPrinciple = () => {
     if (!selectedPattern) return;
@@ -497,16 +731,33 @@ export default function App() {
 
   return (
     <main
-      className={`app-shell${showIntro ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}${isGenesisEmpty ? " is-genesis-empty" : ""}${interactionMode === "COSMIC_EVENT_MODE" ? " is-cosmic-event" : interactionMode === "ORACLE_SEQUENCE" ? " is-oracle-sequence" : " is-read-mode"}`}
+      className={`app-shell${showIntro || entryGate !== "none" ? " is-entering" : ""}${selectedPattern ? " has-reading" : ""}${isGenesisEmpty ? " is-genesis-empty" : ""}${interactionMode === "COSMIC_EVENT_MODE" ? " is-cosmic-event" : interactionMode === "ORACLE_SEQUENCE" ? " is-oracle-sequence" : " is-read-mode"}`}
       data-interaction-mode={interactionMode}
       data-cosmic-event={cosmicEvent?.kind ?? "NONE"}
       data-cosmic-event-phase={cosmicEvent?.phase ?? "NONE"}
+      data-orbit-draw-stage={orbitDrawStage}
+      data-drawn-orbit-count={Object.keys(drawnOrbits).length}
+      data-future-seed-count={Object.values(drawnOrbits).filter((orbit) => Boolean(orbit.future_seed)).length}
       data-oracle-duration-ms={lastOracleDurationMs}
+      data-future-reveal-delay-ms={lastFutureRevealDelayMs}
+      data-projection-prefetch-ready={selectedProjectionReady ? "true" : "false"}
       data-future-choice-selected={futureChoice ? "true" : "false"}
-      data-product-mode={productMode.seededDemo ? "seeded-demo" : productMode.genesisDemo ? "genesis-demo" : "personal"}
+      data-product-mode={productMode.seededDemo
+        ? "seeded-demo"
+        : productMode.genesisDemo
+          ? "genesis-demo"
+          : productMode.isolatedFresh
+            ? "isolated-fresh"
+            : "personal"}
       data-genesis-stage={genesisStage}
       data-user-pattern-count={state.patterns.length}
       data-user-experience-count={state.experiences.length}
+      onPointerDown={() => {
+        if (entryGate === "none") void unlockAudio();
+      }}
+      onKeyDown={() => {
+        if (entryGate === "none") void unlockAudio();
+      }}
     >
       <header className="topbar">
         <div className="brand-lockup">
@@ -565,18 +816,31 @@ export default function App() {
           <ThreeCosmosView
             patterns={state.patterns}
             selectedPatternId={selectedPatternId}
-            onSelectPattern={setSelectedPatternId}
+            onSelectPattern={openPattern}
             futureChoice={futureChoice}
             projections={state.trajectory_projections}
             changedOrbits={state.changed_orbits}
             orbitStates={orbitStates}
-            escapeAnimationId={escapeAnimationId}
+            drawnOrbits={drawnOrbits}
+            orbitDrawStage={orbitDrawStage}
             cosmicEvent={cosmicEvent}
             interactionMode={interactionMode}
             genesisBirths={genesisBirths}
             emergingPatternId={emergingPatternId}
-            onTrajectoryComplete={finishTrajectoryEvent}
+            onOrbitDrawStart={startDrawnOrbit}
+            onOrbitDrawSpeed={updateOrbitDrag}
+            onOrbitDrawCancel={cancelDrawnOrbit}
+            onOrbitDrawComplete={completeDrawnOrbit}
           />
+
+          {cosmicEvent?.kind === "CHANGE_ORBIT"
+            && cosmicEvent.phase === "PLAYING"
+            && futureChoice
+            && (orbitDrawStage === "ready" || orbitDrawStage === "drawing") && (
+            <div className={`orbit-draw-instruction is-${orbitDrawStage}`} aria-live="polite">
+              Draw another way.
+            </div>
+          )}
 
           {isGenesisEmpty && !hydrating && (
             <div className="genesis-invitation">
@@ -618,14 +882,12 @@ export default function App() {
             onCreatePrinciple={createPrinciple}
             projection={state.trajectory_projections[selectedPattern.pattern_id] ?? null}
             changedOrbit={state.changed_orbits[selectedPattern.pattern_id] ?? null}
-            futureChoice={futureChoice?.patternId === selectedPattern.pattern_id ? futureChoice : null}
             onSeeDefaultFuture={seeDefaultFuture}
             fortuneState={fortuneStates[selectedPattern.pattern_id] ?? "unread"}
             orbitState={orbitStates[selectedPattern.pattern_id] ?? "hidden"}
             onRevealFartherFuture={revealFartherFuture}
             onChooseAlternative={chooseAlternative}
             onChooseCustomResponse={chooseCustomResponse}
-            onConfirmChangedOrbit={confirmChangedOrbit}
             immersiveEventMode={interactionMode !== "READ_MODE"}
           />
         )}
@@ -638,7 +900,35 @@ export default function App() {
         onInteract={() => void unlockAudio()}
         onSubmit={addExperience}
       />
-      {oracleSequence && <OracleSequence sequence={oracleSequence} />}
+      {oracleSequence && (
+        <OracleSequence
+          sequence={oracleSequence}
+          onTraceComplete={() => void completeOracleTrace()}
+        />
+      )}
+      {entryGate === "blocked" && (
+        <section
+          className="entry-gate"
+          role="button"
+          tabIndex={0}
+          aria-label="Enter the Cosmos"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            beginGatedIntro();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              beginGatedIntro();
+            }
+          }}
+        >
+          <span className="entry-gate__star" aria-hidden="true" />
+          <p>Enter the Cosmos</p>
+          <span>Click anywhere to begin</span>
+        </section>
+      )}
       {showIntro && <EntryIntro onComplete={finishIntro} />}
     </main>
   );

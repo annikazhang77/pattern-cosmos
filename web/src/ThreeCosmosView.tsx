@@ -8,19 +8,15 @@ import type {
   ChangedOrbit,
   CosmicEventState,
   DefaultFutureProjection,
+  DrawnOrbitPath,
+  FutureChoiceDraft,
   FutureChoicePosition,
   GenesisBirth,
   InteractionMode,
+  OrbitDrawStage,
   OrbitState,
   Pattern,
 } from "./types";
-
-interface FutureChoiceDraft {
-  patternId: string;
-  alternativeId: string;
-  customResponse?: string;
-  position: FutureChoicePosition;
-}
 
 interface ThreeCosmosViewProps {
   patterns: Pattern[];
@@ -30,15 +26,19 @@ interface ThreeCosmosViewProps {
   projections: Record<string, DefaultFutureProjection>;
   changedOrbits: Record<string, ChangedOrbit>;
   orbitStates: Record<string, OrbitState>;
-  escapeAnimationId: number;
+  drawnOrbits: Record<string, DrawnOrbitPath>;
+  orbitDrawStage: OrbitDrawStage;
   cosmicEvent: CosmicEventState | null;
-  onTrajectoryComplete: () => void;
+  onOrbitDrawStart: () => void;
+  onOrbitDrawSpeed: (speed: number) => void;
+  onOrbitDrawCancel: () => void;
+  onOrbitDrawComplete: (points: FutureChoicePosition[], endpoint: FutureChoicePosition) => void;
   interactionMode: InteractionMode;
   genesisBirths: GenesisBirth[];
   emergingPatternId: string | null;
 }
 
-type TrajectoryMode = "hidden" | "current" | "animating" | "changed";
+type TrajectoryMode = "hidden" | "current" | "drawing" | "changed";
 
 interface NebulaSpec {
   position: [number, number, number];
@@ -2111,155 +2111,628 @@ function CollapseCore({ active }: { active: boolean }) {
   );
 }
 
+const MAX_ORBIT_POINTS = 160;
+const MAX_ORBIT_DUST = 96;
+
+const silkTrailVertexShader = `
+  attribute float aEdge;
+  attribute float aProgress;
+  attribute float aSpeed;
+  uniform float uTime;
+  varying float vEdge;
+  varying float vProgress;
+  varying float vSpeed;
+  void main() {
+    vEdge = aEdge;
+    vProgress = aProgress;
+    vSpeed = aSpeed;
+    float livingDrift = sin(aProgress * 31.0 - uTime * 1.45 + aEdge * 0.9) * 0.0065;
+    vec3 silkPosition = position + vec3(0.0, livingDrift, livingDrift * 0.35);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(silkPosition, 1.0);
+  }
+`;
+
+const silkTrailFragmentShader = `
+  uniform float uTime;
+  uniform float uOpacity;
+  varying float vEdge;
+  varying float vProgress;
+  varying float vSpeed;
+  void main() {
+    float edge = abs(vEdge);
+    float core = exp(-edge * 8.5);
+    float veil = pow(max(0.0, 1.0 - edge), 1.85);
+    float flow = 0.88 + 0.12 * sin(vProgress * 62.0 - uTime * 2.1 + sin(vProgress * 11.0));
+    float speedLift = 0.88 + min(1.0, vSpeed) * 0.18;
+    vec3 gold = vec3(0.88, 0.61, 0.20);
+    vec3 warmWhite = vec3(1.0, 0.965, 0.79);
+    vec3 color = mix(gold, warmWhite, core * 0.92);
+    float alpha = (veil * 0.26 + core * 0.76) * flow * speedLift * uOpacity;
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const orbitDustVertexShader = `
+  attribute float aBirth;
+  attribute float aSize;
+  uniform float uTime;
+  uniform float uPixelRatio;
+  varying float vAlpha;
+  void main() {
+    float age = max(0.0, uTime - aBirth);
+    vAlpha = 1.0 - smoothstep(0.16, 1.35, age);
+    vec3 drifted = position + vec3(0.0, age * 0.018, 0.0);
+    vec4 mvPosition = modelViewMatrix * vec4(drifted, 1.0);
+    gl_PointSize = aSize * uPixelRatio * (7.0 / max(2.0, -mvPosition.z));
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const orbitDustFragmentShader = `
+  varying float vAlpha;
+  void main() {
+    float radial = smoothstep(0.5, 0.02, length(gl_PointCoord - 0.5));
+    gl_FragColor = vec4(vec3(1.0, 0.88, 0.56), radial * vAlpha * 0.6);
+  }
+`;
+
+function createDynamicSilkGeometry() {
+  const geometry = new THREE.BufferGeometry();
+  const vertexCount = MAX_ORBIT_POINTS * 2;
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("aEdge", new THREE.BufferAttribute(new Float32Array(vertexCount), 1).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("aProgress", new THREE.BufferAttribute(new Float32Array(vertexCount), 1).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("aSpeed", new THREE.BufferAttribute(new Float32Array(vertexCount), 1).setUsage(THREE.DynamicDrawUsage));
+  const indices = new Uint16Array((MAX_ORBIT_POINTS - 1) * 6);
+  for (let index = 0; index < MAX_ORBIT_POINTS - 1; index += 1) {
+    const offset = index * 6;
+    const left = index * 2;
+    indices[offset] = left;
+    indices[offset + 1] = left + 1;
+    indices[offset + 2] = left + 2;
+    indices[offset + 3] = left + 1;
+    indices[offset + 4] = left + 3;
+    indices[offset + 5] = left + 2;
+  }
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.setDrawRange(0, 0);
+  return geometry;
+}
+
+function updateSilkGeometry(
+  geometry: THREE.BufferGeometry,
+  points: THREE.Vector3[],
+  speeds: number[],
+  viewDirection: THREE.Vector3,
+  width = 0.112,
+) {
+  const count = Math.min(MAX_ORBIT_POINTS, points.length);
+  if (count < 2) {
+    geometry.setDrawRange(0, 0);
+    return;
+  }
+  const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const edges = geometry.getAttribute("aEdge") as THREE.BufferAttribute;
+  const progress = geometry.getAttribute("aProgress") as THREE.BufferAttribute;
+  const speed = geometry.getAttribute("aSpeed") as THREE.BufferAttribute;
+  for (let index = 0; index < count; index += 1) {
+    const previous = points[Math.max(0, index - 1)];
+    const next = points[Math.min(count - 1, index + 1)];
+    const tangent = next.clone().sub(previous).normalize();
+    const side = tangent.clone().cross(viewDirection).normalize();
+    if (side.lengthSq() < 0.001) side.set(-tangent.y, tangent.x, 0).normalize();
+    const speedValue = THREE.MathUtils.clamp(speeds[index] ?? 0, 0, 1);
+    const pulse = 0.88 + Math.sin(index * 0.71) * 0.08 + speedValue * 0.12;
+    const halfWidth = width * pulse;
+    const left = points[index].clone().addScaledVector(side, halfWidth);
+    const right = points[index].clone().addScaledVector(side, -halfWidth);
+    positions.setXYZ(index * 2, left.x, left.y, left.z);
+    positions.setXYZ(index * 2 + 1, right.x, right.y, right.z);
+    edges.setX(index * 2, -1);
+    edges.setX(index * 2 + 1, 1);
+    progress.setX(index * 2, index / (count - 1));
+    progress.setX(index * 2 + 1, index / (count - 1));
+    speed.setX(index * 2, speedValue);
+    speed.setX(index * 2 + 1, speedValue);
+  }
+  positions.needsUpdate = true;
+  edges.needsUpdate = true;
+  progress.needsUpdate = true;
+  speed.needsUpdate = true;
+  geometry.setDrawRange(0, (count - 1) * 6);
+  geometry.computeBoundingSphere();
+}
+
+function smoothOrbitPath(raw: THREE.Vector3[]) {
+  if (raw.length < 3) return raw.map((point) => point.clone());
+  let refined = raw.map((point) => point.clone());
+  for (let pass = 0; pass < 2; pass += 1) {
+    const next = [refined[0].clone()];
+    for (let index = 0; index < refined.length - 1; index += 1) {
+      next.push(refined[index].clone().lerp(refined[index + 1], 0.25));
+      next.push(refined[index].clone().lerp(refined[index + 1], 0.75));
+    }
+    next.push(refined[refined.length - 1].clone());
+    refined = next;
+  }
+  const curve = new THREE.CatmullRomCurve3(refined, false, "centripetal", 0.45);
+  const sampleCount = Math.min(MAX_ORBIT_POINTS, Math.max(44, raw.length * 2));
+  return curve.getSpacedPoints(sampleCount - 1);
+}
+
+function useSilkMaterial(opacity = 1) {
+  const material = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: silkTrailVertexShader,
+    fragmentShader: silkTrailFragmentShader,
+    uniforms: { uTime: { value: 0 }, uOpacity: { value: opacity } },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  }), [opacity]);
+  useEffect(() => () => material.dispose(), [material]);
+  useFrame((state) => { material.uniforms.uTime.value = state.clock.elapsedTime; });
+  return material;
+}
+
+function PersistedSilkOrbit({ orbit }: { orbit: DrawnOrbitPath }) {
+  const geometries = useMemo(() => {
+    const core = createDynamicSilkGeometry();
+    const outer = createDynamicSilkGeometry();
+    const points = orbit.points.map((point) => new THREE.Vector3(point.x, point.y, point.z));
+    const speeds = points.map(() => 0.42);
+    updateSilkGeometry(core, points, speeds, new THREE.Vector3(0, 0, 1), 0.104);
+    updateSilkGeometry(outer, points, speeds, new THREE.Vector3(0, 0, 1), 0.205);
+    return { core, outer };
+  }, [orbit]);
+  const coreMaterial = useSilkMaterial(0.74);
+  const outerMaterial = useSilkMaterial(0.2);
+  useEffect(() => () => {
+    geometries.core.dispose();
+    geometries.outer.dispose();
+  }, [geometries]);
+  return (
+    <group>
+      <mesh geometry={geometries.outer} material={outerMaterial} frustumCulled={false} />
+      <mesh geometry={geometries.core} material={coreMaterial} frustumCulled={false} />
+    </group>
+  );
+}
+
+function useFutureSeedTexture(seed: number) {
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const random = mulberry32(seed);
+    context.clearRect(0, 0, 256, 256);
+    context.globalCompositeOperation = "lighter";
+    for (let index = 0; index < 12; index += 1) {
+      const x = 128 + (random() - 0.5) * 70;
+      const y = 128 + (random() - 0.5) * 54;
+      const radius = 26 + random() * 58;
+      const gradient = context.createRadialGradient(x, y, radius * 0.04, x, y, radius);
+      const opacity = 0.08 + random() * 0.15;
+      gradient.addColorStop(0, `rgba(255,249,220,${opacity * 1.8})`);
+      gradient.addColorStop(0.28, `rgba(244,210,125,${opacity})`);
+      gradient.addColorStop(0.68, `rgba(190,128,53,${opacity * 0.32})`);
+      gradient.addColorStop(1, "rgba(120,75,22,0)");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 256, 256);
+    }
+    context.globalCompositeOperation = "destination-out";
+    for (let index = 0; index < 5; index += 1) {
+      const x = 105 + random() * 62;
+      const y = 100 + random() * 65;
+      const radius = 12 + random() * 28;
+      const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, "rgba(0,0,0,0.34)");
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 256, 256);
+    }
+    const nextTexture = new THREE.CanvasTexture(canvas);
+    nextTexture.colorSpace = THREE.SRGBColorSpace;
+    nextTexture.needsUpdate = true;
+    return nextTexture;
+  }, [seed]);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  return texture;
+}
+
+function FutureSeedBloom({ orbit, forming }: { orbit: DrawnOrbitPath; forming: boolean }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const dustRef = useRef<THREE.PointsMaterial>(null);
+  const ringRef = useRef<THREE.MeshBasicMaterial>(null);
+  const coreRef = useRef<THREE.MeshBasicMaterial>(null);
+  const haloRef = useRef<THREE.SpriteMaterial>(null);
+  const cloudRefs = useRef<THREE.SpriteMaterial[]>([]);
+  const potentialRefs = useRef<THREE.Group[]>([]);
+  const startedAt = useRef<number | null>(null);
+  const glowTexture = useRadialGlowTexture();
+  const cloudTexture = useFutureSeedTexture(orbit.future_seed.seed);
+  const dust = useMemo(() => {
+    const random = mulberry32(orbit.future_seed.seed + 417);
+    const positions = new Float32Array(54 * 3);
+    for (let index = 0; index < 54; index += 1) {
+      const angle = random() * Math.PI * 2;
+      const radius = 0.38 + random() * 1.02;
+      const vertical = (random() - 0.5) * 0.58;
+      positions[index * 3] = Math.cos(angle) * radius;
+      positions[index * 3 + 1] = Math.sin(angle) * radius * 0.64 + vertical * 0.24;
+      positions[index * 3 + 2] = vertical;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return geometry;
+  }, [orbit.future_seed.seed]);
+  const cloudLayers = useMemo(() => [
+    { position: [-0.13, 0.06, -0.12] as [number, number, number], scale: [1.72, 1.14, 1] as [number, number, number], color: "#f8d98b", opacity: 0.2 },
+    { position: [0.18, -0.04, 0.05] as [number, number, number], scale: [1.26, 0.92, 1] as [number, number, number], color: "#fff1c3", opacity: 0.23 },
+    { position: [-0.02, 0.12, 0.18] as [number, number, number], scale: [0.92, 0.7, 1] as [number, number, number], color: "#dca951", opacity: 0.17 },
+  ], []);
+  const potentialStars = useMemo(() => {
+    const random = mulberry32(orbit.future_seed.seed + 911);
+    return Array.from({ length: 3 }, (_, index) => ({
+      position: [
+        (random() - 0.5) * 1.1,
+        (random() - 0.5) * 0.64,
+        (random() - 0.5) * 0.42,
+      ] as [number, number, number],
+      delay: 0.52 + index * 0.14,
+      scale: 0.018 + random() * 0.015,
+    }));
+  }, [orbit.future_seed.seed]);
+
+  useEffect(() => () => dust.dispose(), [dust]);
+  useFrame((state) => {
+    if (startedAt.current === null) startedAt.current = state.clock.elapsedTime;
+    const elapsed = state.clock.elapsedTime - startedAt.current;
+    const progress = forming ? THREE.MathUtils.clamp(elapsed / 2.05, 0, 1) : 1;
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const bloomPulse = forming ? Math.sin(progress * Math.PI) : 0;
+    if (groupRef.current) {
+      const scale = THREE.MathUtils.lerp(0.18, 1, eased) * (1 + bloomPulse * 0.11);
+      groupRef.current.scale.setScalar(scale);
+      groupRef.current.rotation.z = 0.08 + state.clock.elapsedTime * 0.018;
+    }
+    if (coreRef.current) coreRef.current.opacity = 0.88 + bloomPulse * 0.12;
+    if (haloRef.current) haloRef.current.opacity = 0.46 + bloomPulse * 0.42;
+    cloudRefs.current.forEach((material, index) => {
+      material.opacity = cloudLayers[index].opacity * (0.35 + eased * 0.65) + bloomPulse * 0.11;
+      material.rotation = state.clock.elapsedTime * (index % 2 === 0 ? 0.018 : -0.014) + index * 0.72;
+    });
+    if (dustRef.current) dustRef.current.opacity = (forming ? 0.12 + bloomPulse * 0.54 : 0.2);
+    if (ringRef.current) ringRef.current.opacity = forming ? Math.max(0, Math.sin(progress * Math.PI) * 0.34) : 0;
+    potentialRefs.current.forEach((star, index) => {
+      const reveal = THREE.MathUtils.smoothstep(progress, potentialStars[index].delay, Math.min(1, potentialStars[index].delay + 0.22));
+      star.scale.setScalar(reveal * (1 + Math.sin(state.clock.elapsedTime * (1.4 + index * 0.31)) * 0.06));
+    });
+  });
+
+  const position = orbit.future_seed.position;
+  return (
+    <group ref={groupRef} position={[position.x, position.y, position.z]} scale={forming ? 0.18 : 1}>
+      <Html center style={{ pointerEvents: "none" }}>
+        <span className="future-seed-anchor" data-phase={forming ? "forming" : "settled"} aria-hidden="true" />
+      </Html>
+      <points geometry={dust} scale={forming ? [1.7, 1.7, 1.7] : [1, 1, 1]}>
+        <pointsMaterial ref={dustRef} map={glowTexture} color="#f8dca0" size={0.052} transparent opacity={0.2} depthWrite={false} blending={THREE.AdditiveBlending} sizeAttenuation />
+      </points>
+      {cloudLayers.map((layer, index) => (
+        <sprite key={index} position={layer.position} scale={layer.scale}>
+          <spriteMaterial
+            ref={(material) => { if (material) cloudRefs.current[index] = material; }}
+            map={cloudTexture}
+            color={layer.color}
+            transparent
+            opacity={layer.opacity}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
+          />
+        </sprite>
+      ))}
+      <mesh rotation={[0, 0, 0]}>
+        <ringGeometry args={[0.22, 0.235, 64]} />
+        <meshBasicMaterial ref={ringRef} color="#f2c968" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.088, 20, 18]} />
+        <meshBasicMaterial ref={coreRef} color="#fff9e8" transparent opacity={0.94} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.031, 14, 12]} />
+        <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </mesh>
+      <sprite scale={[1.18, 0.92, 1]}>
+        <spriteMaterial ref={haloRef} map={glowTexture} color="#efc76d" transparent opacity={0.58} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+      </sprite>
+      {potentialStars.map((star, index) => (
+        <group
+          key={index}
+          ref={(group) => { if (group) potentialRefs.current[index] = group; }}
+          position={star.position}
+          scale={forming ? 0 : 1}
+        >
+          <mesh>
+            <sphereGeometry args={[star.scale, 10, 8]} />
+            <meshBasicMaterial color={index === 1 ? "#fff5d6" : "#f6dfad"} toneMapped={false} />
+          </mesh>
+          <sprite scale={[0.26, 0.22, 1]}>
+            <spriteMaterial map={glowTexture} color="#ebc56f" transparent opacity={0.4} blending={THREE.AdditiveBlending} depthWrite={false} />
+          </sprite>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function FutureChoiceStar({
   position,
   parent,
-  onMove,
+  stage,
+  onDrawStart,
+  onDrawSpeed,
+  onDrawCancel,
+  onDrawComplete,
 }: {
   position: FutureChoicePosition;
   parent: RefObject<THREE.Group | null>;
-  onMove: (position: FutureChoicePosition) => void;
+  stage: OrbitDrawStage;
+  onDrawStart: () => void;
+  onDrawSpeed: (speed: number) => void;
+  onDrawCancel: () => void;
+  onDrawComplete: (points: FutureChoicePosition[], endpoint: FutureChoicePosition) => void;
 }) {
-  const [dragging, setDragging] = useState(false);
+  const starRef = useRef<THREE.Group>(null);
+  const coreRef = useRef<THREE.MeshBasicMaterial>(null);
+  const haloRef = useRef<THREE.SpriteMaterial>(null);
+  const trailGeometry = useMemo(createDynamicSilkGeometry, []);
+  const outerTrailGeometry = useMemo(createDynamicSilkGeometry, []);
+  const trailMaterial = useSilkMaterial(stage === "saving" ? 0.86 : 1);
+  const outerTrailMaterial = useSilkMaterial(stage === "saving" ? 0.18 : 0.28);
+  const dustGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_ORBIT_DUST * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("aBirth", new THREE.BufferAttribute(new Float32Array(MAX_ORBIT_DUST), 1).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("aSize", new THREE.BufferAttribute(new Float32Array(MAX_ORBIT_DUST), 1).setUsage(THREE.DynamicDrawUsage));
+    geometry.setDrawRange(0, 0);
+    return geometry;
+  }, []);
+  const dustMaterialRef = useRef<THREE.ShaderMaterial>(null);
   const draggingRef = useRef(false);
   const dragPlaneRef = useRef(new THREE.Plane());
+  const rawPointsRef = useRef<THREE.Vector3[]>([]);
+  const speedsRef = useRef<number[]>([]);
+  const distanceRef = useRef(0);
+  const lastSampleRef = useRef({ time: 0, point: new THREE.Vector3(position.x, position.y, position.z) });
+  const dustCountRef = useRef(0);
+  const settlePulseRef = useRef(0);
   const glowTexture = useRadialGlowTexture();
+  const { camera, controls, clock } = useThree();
+  const orbitControls = controls as OrbitControlsImpl | undefined;
+
+  const restoreControls = () => {
+    if (orbitControls) orbitControls.enabled = true;
+    document.body.style.cursor = "default";
+  };
+
+  const resetDrawing = () => {
+    const origin = new THREE.Vector3(position.x, position.y, position.z);
+    rawPointsRef.current = [origin];
+    speedsRef.current = [0];
+    distanceRef.current = 0;
+    dustCountRef.current = 0;
+    dustGeometry.setDrawRange(0, 0);
+    trailGeometry.setDrawRange(0, 0);
+    outerTrailGeometry.setDrawRange(0, 0);
+    if (starRef.current) starRef.current.position.copy(origin);
+  };
+
   useEffect(() => {
-    if (!dragging) return;
-    const stop = () => {
-      draggingRef.current = false;
-      setDragging(false);
-      document.body.style.cursor = "default";
-    };
-    window.addEventListener("pointerup", stop, { once: true });
-    return () => window.removeEventListener("pointerup", stop);
-  }, [dragging]);
+    if (stage === "ready") resetDrawing();
+  }, [stage, position.x, position.y, position.z]);
+  useEffect(() => () => {
+    restoreControls();
+    trailGeometry.dispose();
+    outerTrailGeometry.dispose();
+    dustGeometry.dispose();
+  }, [dustGeometry, outerTrailGeometry, trailGeometry]);
+
+  useFrame((state, delta) => {
+    trailMaterial.uniforms.uTime.value = state.clock.elapsedTime;
+    if (dustMaterialRef.current) dustMaterialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+    settlePulseRef.current = THREE.MathUtils.damp(settlePulseRef.current, stage === "saving" ? 1 : 0, 4.2, delta);
+    const pulse = 1 + Math.sin(state.clock.elapsedTime * 3.1) * 0.025 + settlePulseRef.current * 0.13;
+    if (starRef.current) starRef.current.scale.setScalar(pulse);
+    if (coreRef.current) coreRef.current.opacity = stage === "drawing" ? 1 : 0.92;
+    if (haloRef.current) haloRef.current.opacity = stage === "drawing" ? 0.88 : 0.66;
+  });
+
+  const addDust = (point: THREE.Vector3, speed: number, elapsedTime: number) => {
+    if (speed < 1.45) return;
+    const positionAttribute = dustGeometry.getAttribute("position") as THREE.BufferAttribute;
+    const birthAttribute = dustGeometry.getAttribute("aBirth") as THREE.BufferAttribute;
+    const sizeAttribute = dustGeometry.getAttribute("aSize") as THREE.BufferAttribute;
+    const count = speed > 3.2 ? 2 : 1;
+    for (let index = 0; index < count; index += 1) {
+      const slot = dustCountRef.current % MAX_ORBIT_DUST;
+      const angle = (dustCountRef.current * 2.399 + index * 1.17) % (Math.PI * 2);
+      const spread = 0.018 + (dustCountRef.current % 4) * 0.006;
+      positionAttribute.setXYZ(slot, point.x + Math.cos(angle) * spread, point.y + Math.sin(angle) * spread, point.z + (index - 0.5) * 0.012);
+      birthAttribute.setX(slot, elapsedTime);
+      sizeAttribute.setX(slot, 3.2 + Math.min(4.4, speed) * 0.8 + (slot % 3) * 0.7);
+      dustCountRef.current += 1;
+    }
+    positionAttribute.needsUpdate = true;
+    birthAttribute.needsUpdate = true;
+    sizeAttribute.needsUpdate = true;
+    dustGeometry.setDrawRange(0, Math.min(MAX_ORBIT_DUST, dustCountRef.current));
+  };
+
+  const finishPointer = (event: any, cancelled = false) => {
+    if (!draggingRef.current) return;
+    event.stopPropagation();
+    draggingRef.current = false;
+    const target = event.target as EventTarget & { releasePointerCapture?: (pointerId: number) => void };
+    try { target.releasePointerCapture?.(event.pointerId); } catch { /* capture already released */ }
+    restoreControls();
+    if (cancelled || rawPointsRef.current.length < 5 || distanceRef.current < 0.82) {
+      resetDrawing();
+      onDrawCancel();
+      return;
+    }
+    const smoothed = smoothOrbitPath(rawPointsRef.current);
+    const localView = camera.getWorldDirection(new THREE.Vector3());
+    if (parent.current) {
+      const inverse = parent.current.getWorldQuaternion(new THREE.Quaternion()).invert();
+      localView.applyQuaternion(inverse).normalize();
+    }
+    updateSilkGeometry(trailGeometry, smoothed, smoothed.map(() => 0.46), localView);
+    updateSilkGeometry(outerTrailGeometry, smoothed, smoothed.map(() => 0.46), localView, 0.22);
+    const endpoint = smoothed[smoothed.length - 1];
+    if (starRef.current) starRef.current.position.copy(endpoint);
+    settlePulseRef.current = 1;
+    onDrawComplete(
+      smoothed.map((point) => ({ x: point.x, y: point.y, z: point.z })),
+      { x: endpoint.x, y: endpoint.y, z: endpoint.z },
+    );
+  };
 
   return (
-    <group position={[position.x, position.y, position.z]}>
-      <group>
+    <group>
+      <mesh geometry={outerTrailGeometry} material={outerTrailMaterial} frustumCulled={false} />
+      <mesh geometry={trailGeometry} material={trailMaterial} frustumCulled={false} />
+      <points geometry={dustGeometry} frustumCulled={false}>
+        <shaderMaterial
+          ref={dustMaterialRef}
+          vertexShader={orbitDustVertexShader}
+          fragmentShader={orbitDustFragmentShader}
+          uniforms={{
+            uTime: { value: 0 },
+            uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) },
+          }}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </points>
+      <group ref={starRef} position={[position.x, position.y, position.z]}>
+        <Html center style={{ pointerEvents: "none" }}>
+          <span className="future-choice-star-anchor" data-stage={stage} aria-hidden="true" />
+        </Html>
         <mesh
           onPointerDown={(event) => {
+            if (stage !== "ready") return;
             event.stopPropagation();
+            event.nativeEvent.preventDefault();
             const normal = event.camera.getWorldDirection(new THREE.Vector3());
             dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, event.point);
+            resetDrawing();
             draggingRef.current = true;
-            setDragging(true);
+            if (orbitControls) orbitControls.enabled = false;
             document.body.style.cursor = "grabbing";
-            const target = event.target as EventTarget & {
-              setPointerCapture: (pointerId: number) => void;
-            };
+            const target = event.target as EventTarget & { setPointerCapture: (pointerId: number) => void };
             target.setPointerCapture(event.pointerId);
+            lastSampleRef.current = { time: event.nativeEvent.timeStamp, point: rawPointsRef.current[0].clone() };
+            onDrawStart();
           }}
           onPointerMove={(event) => {
             if (!draggingRef.current || !parent.current) return;
             event.stopPropagation();
+            event.nativeEvent.preventDefault();
             const world = new THREE.Vector3();
             if (!event.ray.intersectPlane(dragPlaneRef.current, world)) return;
-            const local = parent.current.worldToLocal(world);
-            onMove({
-              x: THREE.MathUtils.clamp(local.x, -2.2, 2.25),
-              y: THREE.MathUtils.clamp(local.y, -1.35, 1.45),
-              z: THREE.MathUtils.clamp(local.z, -1.2, 1.2),
+            const local = parent.current.worldToLocal(world.clone());
+            local.set(
+              THREE.MathUtils.clamp(local.x, -2.8, 2.95),
+              THREE.MathUtils.clamp(local.y, -1.72, 1.72),
+              THREE.MathUtils.clamp(local.z, -1.25, 1.3),
+            );
+            const previous = lastSampleRef.current.point;
+            const distance = local.distanceTo(previous);
+            const elapsed = Math.max(8, event.nativeEvent.timeStamp - lastSampleRef.current.time);
+            if (distance < 0.018 && elapsed < 18) return;
+            const speed = distance / (elapsed / 1000);
+            distanceRef.current += distance;
+            rawPointsRef.current.push(local.clone());
+            speedsRef.current.push(THREE.MathUtils.clamp(speed / 4.5, 0, 1));
+            if (rawPointsRef.current.length > MAX_ORBIT_POINTS) {
+              rawPointsRef.current.splice(1, 1);
+              speedsRef.current.splice(1, 1);
+            }
+            lastSampleRef.current = { time: event.nativeEvent.timeStamp, point: local.clone() };
+            if (starRef.current) starRef.current.position.copy(local);
+            const localView = camera.getWorldDirection(new THREE.Vector3());
+            const inverse = parent.current.getWorldQuaternion(new THREE.Quaternion()).invert();
+            localView.applyQuaternion(inverse).normalize();
+            const previewPoints = rawPointsRef.current.length > 2
+              ? smoothOrbitPath(rawPointsRef.current)
+              : rawPointsRef.current;
+            const previewSpeeds = previewPoints.map((_, index) => {
+              const sourceIndex = Math.min(
+                speedsRef.current.length - 1,
+                Math.round((index / Math.max(1, previewPoints.length - 1)) * (speedsRef.current.length - 1)),
+              );
+              return speedsRef.current[sourceIndex] ?? 0;
             });
+            updateSilkGeometry(trailGeometry, previewPoints, previewSpeeds, localView);
+            updateSilkGeometry(outerTrailGeometry, previewPoints, previewSpeeds, localView, 0.22);
+            addDust(local, speed, clock.elapsedTime);
+            onDrawSpeed(speed);
           }}
-          onPointerUp={(event) => {
-            event.stopPropagation();
-            draggingRef.current = false;
-            setDragging(false);
-            document.body.style.cursor = "default";
-            const target = event.target as EventTarget & {
-              releasePointerCapture: (pointerId: number) => void;
-            };
-            target.releasePointerCapture(event.pointerId);
-          }}
+          onPointerUp={(event) => finishPointer(event)}
+          onPointerCancel={(event) => finishPointer(event, true)}
+          onPointerOver={() => { if (!draggingRef.current) document.body.style.cursor = "grab"; }}
+          onPointerOut={() => { if (!draggingRef.current) document.body.style.cursor = "default"; }}
         >
-          <sphereGeometry args={[0.24, 18, 18]} />
+          <sphereGeometry args={[0.28, 20, 20]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
         </mesh>
         <mesh>
-          <sphereGeometry args={[0.085, 18, 18]} />
-          <meshBasicMaterial color="#fff1b8" toneMapped={false} />
+          <sphereGeometry args={[0.078, 20, 18]} />
+          <meshBasicMaterial ref={coreRef} color="#fff7d8" transparent opacity={0.94} toneMapped={false} />
         </mesh>
-        <sprite scale={[0.72, 0.72, 1]}>
-          <spriteMaterial
-            map={glowTexture}
-            color="#e8bd56"
-            transparent
-            opacity={dragging ? 0.82 : 0.58}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
+        <mesh>
+          <sphereGeometry args={[0.028, 14, 12]} />
+          <meshBasicMaterial color="#ffffff" toneMapped={false} />
+        </mesh>
+        <sprite scale={[0.78, 0.66, 1]}>
+          <spriteMaterial ref={haloRef} map={glowTexture} color="#e8c465" transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} />
         </sprite>
-        <Html position={[0, -0.28, 0]} center style={{ pointerEvents: "none" }}>
-          <div className="future-choice-label">Future Choice Star</div>
-        </Html>
       </group>
     </group>
   );
 }
 
-const escapeTrailVertexShader = `
-  attribute float aProgress;
-  uniform float uHead;
-  uniform float uPixelRatio;
-  varying float vAlpha;
-  void main() {
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float behind = step(aProgress, uHead);
-    float tail = smoothstep(max(0.0, uHead - 0.42), uHead, aProgress);
-    vAlpha = behind * tail;
-    gl_PointSize = (3.0 + tail * 6.0) * uPixelRatio * (8.0 / max(2.0, -mvPosition.z));
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`;
-
-const escapeTrailFragmentShader = `
-  varying float vAlpha;
-  void main() {
-    vec2 centered = gl_PointCoord - 0.5;
-    float radial = smoothstep(0.5, 0.04, length(centered));
-    vec3 color = mix(vec3(0.89, 0.58, 0.16), vec3(1.0, 0.95, 0.75), radial);
-    gl_FragColor = vec4(color, radial * vAlpha * 0.92);
-  }
-`;
-
-function GoldenEscapeTrajectory({
-  target,
-  animationId,
-  blackHole,
+function DrawnOrbitTrajectory({
   mode,
-  onComplete,
+  blackHole,
+  futureChoice,
+  drawnOrbit,
+  parent,
+  stage,
+  onDrawStart,
+  onDrawSpeed,
+  onDrawCancel,
+  onDrawComplete,
 }: {
-  target: FutureChoicePosition;
-  animationId: number;
-  blackHole: boolean;
   mode: Exclude<TrajectoryMode, "hidden">;
-  onComplete: () => void;
+  blackHole: boolean;
+  futureChoice: FutureChoiceDraft | null;
+  drawnOrbit: DrawnOrbitPath | null;
+  parent: RefObject<THREE.Group | null>;
+  stage: OrbitDrawStage;
+  onDrawStart: () => void;
+  onDrawSpeed: (speed: number) => void;
+  onDrawCancel: () => void;
+  onDrawComplete: (points: FutureChoicePosition[], endpoint: FutureChoicePosition) => void;
 }) {
-  const starRef = useRef<THREE.Group>(null);
-  const destinationRef = useRef<THREE.Group>(null);
-  const trailMaterialRef = useRef<THREE.ShaderMaterial>(null);
-  const growingLineRef = useRef<any>(null);
-  const glowTexture = useRadialGlowTexture();
-  const progressRef = useRef(mode === "animating" ? 0 : 1);
-  const notifiedRef = useRef(false);
-  const reduceMotion = useMemo(
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    [],
-  );
-  const curve = useMemo(() => {
-    const start = new THREE.Vector3(blackHole ? -0.38 : 0.46, blackHole ? -0.08 : -0.12, 1.12);
-    const end = new THREE.Vector3(target.x, target.y, target.z);
-    return new THREE.CubicBezierCurve3(
-      start,
-      blackHole
-        ? new THREE.Vector3(-0.18, 1.34, 1.34)
-        : new THREE.Vector3(1.02, 1.72, 1.36),
-      new THREE.Vector3(end.x - 1.18, end.y + 0.72, end.z + 0.26),
-      end,
-    );
-  }, [blackHole, target.x, target.y, target.z]);
   const currentOrbit = useMemo(() => {
     const points: THREE.Vector3[] = [];
     const startAngle = blackHole ? -2.9 : -2.4;
@@ -2276,139 +2749,40 @@ function GoldenEscapeTrajectory({
     }
     return points;
   }, [blackHole]);
-  const trailGeometry = useMemo(() => {
-    const count = 176;
-    const random = mulberry32(77831 + Math.round(target.x * 100));
-    const points = Array.from({ length: count }, (_, index) => {
-      const progress = index / (count - 1);
-      const point = curve.getPoint(progress);
-      const spread = 0.012 + progress * 0.022;
-      point.x += (random() - 0.5) * spread;
-      point.y += (random() - 0.5) * spread;
-      point.z += (random() - 0.5) * spread;
-      return point;
-    });
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    geometry.setAttribute(
-      "aProgress",
-      new THREE.Float32BufferAttribute(points.map((_, index) => index / (count - 1)), 1),
-    );
-    return geometry;
-  }, [curve]);
-
-  useEffect(() => () => trailGeometry.dispose(), [trailGeometry]);
-  useEffect(() => {
-    progressRef.current = mode === "animating" && !reduceMotion ? 0 : 1;
-    notifiedRef.current = false;
-    if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = progressRef.current;
-    const geometry = growingLineRef.current?.geometry as THREE.BufferGeometry | undefined;
-    if (geometry) geometry.setDrawRange(0, mode === "animating" ? 0 : Infinity);
-  }, [animationId, mode, reduceMotion]);
-
-  useFrame((_, delta) => {
-    if (mode === "animating" && progressRef.current < 1) {
-      progressRef.current = Math.min(1, progressRef.current + delta / 3.0);
-    }
-    const eased = progressRef.current < 0.5
-      ? 4 * progressRef.current * progressRef.current * progressRef.current
-      : 1 - Math.pow(-2 * progressRef.current + 2, 3) / 2;
-    if (starRef.current) starRef.current.position.copy(curve.getPoint(eased));
-    if (destinationRef.current) {
-      const reveal = THREE.MathUtils.smoothstep(eased, 0.82, 1);
-      destinationRef.current.scale.setScalar(Math.max(0.001, reveal));
-    }
-    if (trailMaterialRef.current) trailMaterialRef.current.uniforms.uHead.value = eased;
-    const growingGeometry = growingLineRef.current?.geometry as THREE.BufferGeometry | undefined;
-    if (growingGeometry && mode === "animating") {
-      growingGeometry.setDrawRange(0, Math.max(2, Math.ceil(eased * 83)));
-    }
-    if (mode === "animating" && progressRef.current >= 1 && !notifiedRef.current) {
-      notifiedRef.current = true;
-      onComplete();
-    }
-  });
-
   return (
     <group>
-      {mode !== "animating" && <Line
+      <Line
         points={currentOrbit}
         color="#78909c"
-        lineWidth={0.58}
+        lineWidth={0.5}
         transparent
-        opacity={0.28}
+        opacity={mode === "current" ? 0.23 : 0.16}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
-      />}
-      {mode === "changed" && <Line
-        points={curve.getPoints(82)}
-        color="#e8c66c"
-        lineWidth={0.82}
-        transparent
-        opacity={0.46}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-      />}
-      {mode === "animating" && <Line
-        ref={growingLineRef}
-        points={curve.getPoints(82)}
-        color="#f2d47d"
-        lineWidth={0.9}
-        transparent
-        opacity={0.56}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-      />}
-      {mode === "animating" && <points geometry={trailGeometry}>
-        <shaderMaterial
-          ref={trailMaterialRef}
-          vertexShader={escapeTrailVertexShader}
-          fragmentShader={escapeTrailFragmentShader}
-          uniforms={{
-            uHead: { value: progressRef.current },
-            uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) },
-          }}
-          transparent
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-          toneMapped={false}
+      />
+      {mode === "drawing" && futureChoice && stage !== "blooming" && (
+        <FutureChoiceStar
+          position={futureChoice.position}
+          parent={parent}
+          stage={stage}
+          onDrawStart={onDrawStart}
+          onDrawSpeed={onDrawSpeed}
+          onDrawCancel={onDrawCancel}
+          onDrawComplete={onDrawComplete}
         />
-      </points>}
-      {mode === "animating" && <group ref={starRef}>
-        <mesh>
-          <sphereGeometry args={[0.07, 16, 16]} />
-          <meshBasicMaterial color="#fff4c9" toneMapped={false} />
-        </mesh>
-        <sprite scale={[0.66, 0.66, 1]}>
-          <spriteMaterial
-            map={glowTexture}
-            color="#e5b94e"
-            transparent
-            opacity={0.7}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </sprite>
-      </group>}
-      {mode !== "current" && <group ref={destinationRef} position={[target.x, target.y, target.z]} scale={mode === "changed" ? 1 : 0.001}>
-        <mesh>
-          <sphereGeometry args={[0.085, 18, 18]} />
-          <meshBasicMaterial color="#fff4cf" toneMapped={false} />
-        </mesh>
-        <sprite scale={[0.82, 0.82, 1]}>
-          <spriteMaterial map={glowTexture} color="#e7c468" transparent opacity={0.66} blending={THREE.AdditiveBlending} depthWrite={false} />
-        </sprite>
-        {[
-          [-0.27, 0.16, -0.04],
-          [0.24, 0.2, 0.05],
-          [0.31, -0.14, -0.03],
-          [-0.21, -0.23, 0.06],
-        ].map((position, index) => (
-          <mesh key={index} position={position as [number, number, number]}>
-            <sphereGeometry args={[0.026, 8, 8]} />
-            <meshBasicMaterial color={index % 2 === 0 ? "#f5dda0" : "#eef6f2"} toneMapped={false} />
-          </mesh>
-        ))}
-      </group>}
+      )}
+      {mode === "drawing" && stage === "blooming" && drawnOrbit && (
+        <>
+          <PersistedSilkOrbit orbit={drawnOrbit} />
+          <FutureSeedBloom orbit={drawnOrbit} forming />
+        </>
+      )}
+      {mode === "changed" && drawnOrbit && (
+        <>
+          <PersistedSilkOrbit orbit={drawnOrbit} />
+          <FutureSeedBloom orbit={drawnOrbit} forming={false} />
+        </>
+      )}
     </group>
   );
 }
@@ -2456,9 +2830,13 @@ function PatternNebula({
   onSelect,
   futureChoice,
   changedOrbit,
+  drawnOrbit,
   trajectoryMode,
-  escapeAnimationId,
-  onTrajectoryComplete,
+  orbitDrawStage,
+  onOrbitDrawStart,
+  onOrbitDrawSpeed,
+  onOrbitDrawCancel,
+  onOrbitDrawComplete,
   emerging,
 }: {
   pattern: Pattern;
@@ -2470,9 +2848,13 @@ function PatternNebula({
   onSelect: () => void;
   futureChoice: FutureChoiceDraft | null;
   changedOrbit: ChangedOrbit | null;
+  drawnOrbit: DrawnOrbitPath | null;
   trajectoryMode: TrajectoryMode;
-  escapeAnimationId: number;
-  onTrajectoryComplete: () => void;
+  orbitDrawStage: OrbitDrawStage;
+  onOrbitDrawStart: () => void;
+  onOrbitDrawSpeed: (speed: number) => void;
+  onOrbitDrawCancel: () => void;
+  onOrbitDrawComplete: (points: FutureChoicePosition[], endpoint: FutureChoicePosition) => void;
   emerging: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -2627,12 +3009,17 @@ function PatternNebula({
       <CollapseCore active={resolvedVisualState === "black_hole" && !dimmed} />
 
       {trajectoryMode !== "hidden" && (
-        <GoldenEscapeTrajectory
-          target={changedOrbit?.future_choice_position ?? { x: 2.15, y: 0.72, z: 0.55 }}
-          animationId={escapeAnimationId}
+        <DrawnOrbitTrajectory
           blackHole={resolvedVisualState === "black_hole"}
           mode={trajectoryMode}
-          onComplete={onTrajectoryComplete}
+          futureChoice={futureChoice}
+          drawnOrbit={drawnOrbit}
+          parent={groupRef}
+          stage={orbitDrawStage}
+          onDrawStart={onOrbitDrawStart}
+          onDrawSpeed={onOrbitDrawSpeed}
+          onDrawCancel={onOrbitDrawCancel}
+          onDrawComplete={onOrbitDrawComplete}
         />
       )}
 
@@ -2673,14 +3060,18 @@ function PatternNebula({
 
 function CameraRig({
   selectedFrame,
+  futureBloomPosition,
   orbitPreset,
   homeCamera,
   cosmicEvent,
+  interactionLocked,
 }: {
   selectedFrame: FocusFrame | null;
+  futureBloomPosition: [number, number, number] | null;
   orbitPreset: "D" | "D2" | null;
   homeCamera: [number, number, number];
   cosmicEvent: CosmicEventState | null;
+  interactionLocked: boolean;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
@@ -2688,21 +3079,24 @@ function CameraRig({
 
   useEffect(() => {
     transitionStrength.current = 1;
-  }, [selectedFrame, cosmicEvent?.kind, cosmicEvent?.phase]);
+  }, [selectedFrame, futureBloomPosition, cosmicEvent?.kind, cosmicEvent?.phase]);
 
   useFrame((_, delta) => {
     const orbit = controls.current;
     if (!orbit || transitionStrength.current < 0.002) return;
     const eventOffset = cosmicEvent?.kind === "CHANGE_ORBIT" ? 1.18 : cosmicEvent?.kind === "CONSTELLATION" ? 0 : cosmicEvent?.kind === "BLACK_HOLE" ? 0 : 0.54;
     const eventDistance = cosmicEvent?.kind === "CHANGE_ORBIT" ? 11.4 : cosmicEvent?.kind === "CONSTELLATION" ? 2.9 : cosmicEvent?.kind === "BLACK_HOLE" ? 7.55 : 9.35;
+    const bloomTarget = futureBloomPosition ? new THREE.Vector3(...futureBloomPosition) : null;
     const target = selectedFrame
-      ? new THREE.Vector3(...selectedFrame.position)
-        .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(eventOffset))
-        .add(new THREE.Vector3(0, 0.04, 0))
+      ? bloomTarget
+        ? bloomTarget.clone().lerp(new THREE.Vector3(...selectedFrame.position), 0.1)
+        : new THREE.Vector3(...selectedFrame.position)
+          .add(new THREE.Vector3(...selectedFrame.right).multiplyScalar(eventOffset))
+          .add(new THREE.Vector3(0, 0.04, 0))
       : new THREE.Vector3(0, 0, 0);
     const destination = selectedFrame
       ? target.clone()
-        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(eventDistance))
+        .add(new THREE.Vector3(...selectedFrame.normal).multiplyScalar(bloomTarget ? 7.6 : eventDistance))
         .add(new THREE.Vector3(0, 0.08, 0))
       : new THREE.Vector3(...homeCamera);
     orbit.target.lerp(target, 1 - Math.exp(-delta * 3.2));
@@ -2716,6 +3110,7 @@ function CameraRig({
     <OrbitControls
       ref={controls}
       makeDefault
+      enabled={!interactionLocked}
       enableDamping
       dampingFactor={0.065}
       minDistance={2.65}
@@ -2770,10 +3165,14 @@ function Scene({
   futureChoice,
   projections,
   changedOrbits,
+  drawnOrbits,
   orbitStates,
-  escapeAnimationId,
+  orbitDrawStage,
   cosmicEvent,
-  onTrajectoryComplete,
+  onOrbitDrawStart,
+  onOrbitDrawSpeed,
+  onOrbitDrawCancel,
+  onOrbitDrawComplete,
   genesisBirths,
   emergingPatternId,
 }: ThreeCosmosViewProps & { visual: VisualPreset }) {
@@ -2797,6 +3196,23 @@ function Scene({
       right: right.toArray() as [number, number, number],
     };
   }, [nebulaSpecs, selectedIndex]);
+  const futureBloomPosition = useMemo(() => {
+    if (
+      cosmicEvent?.kind !== "CHANGE_ORBIT"
+      || selectedIndex < 0
+      || (orbitDrawStage !== "blooming" && cosmicEvent.phase !== "SETTLED")
+    ) return null;
+    const orbit = drawnOrbits[cosmicEvent.patternId];
+    if (!orbit) return null;
+    const spec = nebulaSpecs[selectedIndex % nebulaSpecs.length];
+    const endpoint = orbit.future_seed.position;
+    const world = new THREE.Vector3(endpoint.x, endpoint.y, endpoint.z)
+      .multiply(new THREE.Vector3(...spec.scale))
+      .applyEuler(new THREE.Euler(...spec.rotation))
+      .add(new THREE.Vector3(...spec.position))
+      .applyEuler(new THREE.Euler(...UNIVERSE_ROTATION));
+    return world.toArray() as [number, number, number];
+  }, [cosmicEvent, drawnOrbits, nebulaSpecs, orbitDrawStage, selectedIndex]);
 
   return (
     <>
@@ -2812,14 +3228,14 @@ function Scene({
             const eventForPattern = cosmicEvent?.patternId === pattern.pattern_id ? cosmicEvent : null;
             let trajectoryMode: TrajectoryMode = "hidden";
             const orbitState = orbitStates[pattern.pattern_id] ?? "hidden";
-            if (orbitState === "changed" && changedOrbits[pattern.pattern_id]) trajectoryMode = "changed";
+            if (orbitState === "changed" && changedOrbits[pattern.pattern_id] && drawnOrbits[pattern.pattern_id]) trajectoryMode = "changed";
             else if (orbitState === "current" && isSelected && projections[pattern.pattern_id]) trajectoryMode = "current";
             if (eventForPattern?.kind === "BLACK_HOLE") trajectoryMode = "hidden";
             if (eventForPattern?.kind === "CHANGE_ORBIT") {
               trajectoryMode = eventForPattern.phase === "PREFRAME"
                 ? "hidden"
                 : eventForPattern.phase === "PLAYING"
-                  ? "animating"
+                  ? "drawing"
                   : "changed";
             }
             return (
@@ -2834,9 +3250,13 @@ function Scene({
             onSelect={() => onSelectPattern(pattern.pattern_id)}
             futureChoice={futureChoice?.patternId === pattern.pattern_id ? futureChoice : null}
             changedOrbit={changedOrbits[pattern.pattern_id] ?? null}
+            drawnOrbit={drawnOrbits[pattern.pattern_id] ?? null}
             trajectoryMode={trajectoryMode}
-            escapeAnimationId={escapeAnimationId}
-            onTrajectoryComplete={onTrajectoryComplete}
+            orbitDrawStage={orbitDrawStage}
+            onOrbitDrawStart={onOrbitDrawStart}
+            onOrbitDrawSpeed={onOrbitDrawSpeed}
+            onOrbitDrawCancel={onOrbitDrawCancel}
+            onOrbitDrawComplete={onOrbitDrawComplete}
             emerging={emergingPatternId === pattern.pattern_id}
           />
             );
@@ -2845,9 +3265,11 @@ function Scene({
       </group>
       <CameraRig
         selectedFrame={selectedFrame}
+        futureBloomPosition={futureBloomPosition}
         orbitPreset={visual.name === "D" || visual.name === "D2" ? visual.name : null}
         homeCamera={visual.camera}
         cosmicEvent={cosmicEvent}
+        interactionLocked={orbitDrawStage === "drawing" || orbitDrawStage === "saving" || orbitDrawStage === "blooming"}
       />
       <WarmMainScene />
       <EffectComposer multisampling={0}>
@@ -2870,10 +3292,14 @@ export function ThreeCosmosView({
   futureChoice,
   projections,
   changedOrbits,
+  drawnOrbits,
   orbitStates,
-  escapeAnimationId,
+  orbitDrawStage,
   cosmicEvent,
-  onTrajectoryComplete,
+  onOrbitDrawStart,
+  onOrbitDrawSpeed,
+  onOrbitDrawCancel,
+  onOrbitDrawComplete,
   interactionMode,
   genesisBirths,
   emergingPatternId,
@@ -2900,10 +3326,14 @@ export function ThreeCosmosView({
           futureChoice={futureChoice}
           projections={projections}
           changedOrbits={changedOrbits}
+          drawnOrbits={drawnOrbits}
           orbitStates={orbitStates}
-          escapeAnimationId={escapeAnimationId}
+          orbitDrawStage={orbitDrawStage}
           cosmicEvent={cosmicEvent}
-          onTrajectoryComplete={onTrajectoryComplete}
+          onOrbitDrawStart={onOrbitDrawStart}
+          onOrbitDrawSpeed={onOrbitDrawSpeed}
+          onOrbitDrawCancel={onOrbitDrawCancel}
+          onOrbitDrawComplete={onOrbitDrawComplete}
           interactionMode={interactionMode}
           genesisBirths={genesisBirths}
           emergingPatternId={emergingPatternId}

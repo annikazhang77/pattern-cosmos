@@ -79,6 +79,7 @@ export interface DefaultFutureProjection {
   model: string;
   model_calls: number;
   generated_at: string;
+  evidence_version?: string;
 }
 
 export interface FutureChoicePosition {
@@ -86,6 +87,30 @@ export interface FutureChoicePosition {
   y: number;
   z: number;
 }
+
+export interface FutureChoiceDraft {
+  patternId: string;
+  alternativeId: string;
+  customResponse?: string;
+  position: FutureChoicePosition;
+}
+
+export interface FutureSeedState {
+  position: FutureChoicePosition;
+  born_at: string;
+  seed: number;
+}
+
+export interface DrawnOrbitPath {
+  pattern_id: string;
+  points: FutureChoicePosition[];
+  endpoint: FutureChoicePosition;
+  future_seed: FutureSeedState;
+  black_hole: boolean;
+  completed_at: string;
+}
+
+export type OrbitDrawStage = "idle" | "preframe" | "ready" | "drawing" | "saving" | "blooming";
 
 export interface ChangedOrbit {
   pattern_id: string;
@@ -112,7 +137,7 @@ export interface OracleOrigin {
 
 export interface OracleSequenceState {
   patternId: string;
-  phase: "GATHER" | "OPENING" | "MIST" | "REVEAL";
+  phase: "GATHER" | "OPENING" | "TRACE" | "COMPLETE" | "MIST" | "REVEAL";
   origin: OracleOrigin;
 }
 

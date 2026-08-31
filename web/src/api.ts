@@ -11,15 +11,18 @@ const query = new URLSearchParams(window.location.search);
 export const productMode = {
   seededDemo: query.get("demo") === "1",
   genesisDemo: query.get("genesis-demo") === "1",
+  isolatedFresh: query.get("new") === "1",
 };
 const sessionKey = productMode.seededDemo
   ? "pattern-cosmos-seeded-demo-session"
   : productMode.genesisDemo
     ? "pattern-cosmos-genesis-demo-session"
-    : "pattern-cosmos-anonymous-session";
-const storedSessionId = window.localStorage.getItem(sessionKey);
+    : productMode.isolatedFresh
+      ? null
+      : "pattern-cosmos-anonymous-session";
+const storedSessionId = sessionKey ? window.localStorage.getItem(sessionKey) : null;
 const sessionId = storedSessionId ?? `cosmos-${crypto.randomUUID().replaceAll("-", "")}`;
-if (!storedSessionId) window.localStorage.setItem(sessionKey, sessionId);
+if (sessionKey && !storedSessionId) window.localStorage.setItem(sessionKey, sessionId);
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;

@@ -6,7 +6,6 @@ import type {
   DefaultFutureProjection,
   Experience,
   FortuneState,
-  FutureChoicePosition,
   OracleOrigin,
   OrbitState,
   Pattern,
@@ -22,19 +21,12 @@ interface PatternDrawerProps {
   onCreatePrinciple: () => void;
   projection: DefaultFutureProjection | null;
   changedOrbit: ChangedOrbit | null;
-  futureChoice: {
-    patternId: string;
-    alternativeId: string;
-    customResponse?: string;
-    position: FutureChoicePosition;
-  } | null;
   onSeeDefaultFuture: (origin: OracleOrigin) => void;
   fortuneState: FortuneState;
   orbitState: OrbitState;
   onRevealFartherFuture: () => void;
   onChooseAlternative: (alternative: AlternativeResponse) => void;
   onChooseCustomResponse: (response: string) => void;
-  onConfirmChangedOrbit: () => void;
   immersiveEventMode: boolean;
 }
 
@@ -101,14 +93,12 @@ export function PatternDrawer({
   onCreatePrinciple,
   projection,
   changedOrbit,
-  futureChoice,
   onSeeDefaultFuture,
   fortuneState,
   orbitState,
   onRevealFartherFuture,
   onChooseAlternative,
   onChooseCustomResponse,
-  onConfirmChangedOrbit,
   immersiveEventMode,
 }: PatternDrawerProps) {
   const [showAlternatives, setShowAlternatives] = useState(false);
@@ -247,7 +237,7 @@ export function PatternDrawer({
 
         <section className="orbit-section">
           {fortuneState !== "unread" && projection ? (
-            <div className="default-future">
+            <div className="default-future" data-pattern-id={pattern.pattern_id}>
               <header className="future-heading">
                 <span>Default Future · One Year</span>
                 <small>{projection.evidence_ids.length} cited moments</small>
@@ -304,7 +294,6 @@ export function PatternDrawer({
                   {projection.alternatives.map((alternative) => (
                     <button
                       key={alternative.alternative_id}
-                      className={futureChoice?.alternativeId === alternative.alternative_id ? "is-active" : ""}
                       onClick={() => onChooseAlternative(alternative)}
                     >
                       <span>{visualSummary(alternative.response, 138)}</span>
@@ -316,19 +305,14 @@ export function PatternDrawer({
                       value={customResponse}
                       rows={3}
                       placeholder="At the same trigger, I will..."
-                      onChange={(event) => {
-                        const response = event.target.value;
-                        setCustomResponse(response);
-                        if (response.trim().length >= 12) onChooseCustomResponse(response.trim());
-                      }}
+                      onChange={(event) => setCustomResponse(event.target.value)}
                     />
                   </label>
-                  {futureChoice && (
-                    <div className="future-choice-confirm">
-                      <p>Confirm this response to let the choice enter the Cosmos.</p>
-                      <button onClick={onConfirmChangedOrbit} disabled={busy}>
+                  {customResponse.trim().length >= 12 && (
+                    <div className="custom-response-action">
+                      <button onClick={() => onChooseCustomResponse(customResponse.trim())} disabled={busy}>
                         <Sparkle size={16} weight="fill" />
-                        Set this new orbit
+                        Draw this response
                       </button>
                     </div>
                   )}
