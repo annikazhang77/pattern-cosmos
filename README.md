@@ -1,143 +1,139 @@
 # Pattern Cosmos
 
-Pattern Cosmos is an evidence-linked personal pattern curator. It turns dated experiences into
-careful hypotheses about recurring **trigger → response → outcome** pathways, keeps supporting and
-contradicting moments attached, and renders each pattern as an explorable photographic nebula.
+### See the patterns behind your experiences. Choose what happens next.
 
-**Live demo:** https://pattern-cosmos-946174509894.us-central1.run.app
+Pattern Cosmos turns dated notes into an interactive 3D map of recurring behavior.
+An evidence-constrained AI agent connects **trigger → response → outcome** pathways
+across different moments, while keeping supporting evidence and contradictions visible.
 
-## The problem
+**[Explore the demo](https://pattern-cosmos-946174509894.us-central1.run.app/?demo=1)**
+· [Architecture](#how-it-works) · [Run locally](#run-locally)
 
-Journals preserve moments, but recurring mechanisms remain hard to see across months of notes.
-Ordinary AI summaries flatten history into themes or personality claims. Pattern Cosmos instead
-treats every insight as a hypothesis that must earn evidence from independent dates.
+![A selected pattern with its supporting experiences in Pattern Cosmos](docs/screenshots/pattern-evidence.png)
 
-## Why it is agentic
+## Why this project
 
-`PatternCurator` is a Google ADK agent, not a chat wrapper. Given a new experience, it inspects the
-existing pattern state, cites older evidence, and calls a state-changing tool to choose exactly one
-action:
+Journal entries capture individual moments, but recurring mechanisms can be difficult to see
+across weeks or months. Pattern Cosmos makes those connections explorable: open a nebula,
+read the dated experiences behind it, inspect contradictions, and decide what to reinforce or change.
 
-- `NEW_PATTERN`
-- `REINFORCE_EXISTING`
-- `CONTRADICT_EXISTING`
-- `PROPOSE_MERGE`
+## What you can do
 
-For a bounded Markdown/TXT import, it autonomously discovers only mechanisms supported by at least
-three dates and writes the pattern/evidence graph through tools. Deterministic Python code—not the
-model—computes evidence counts, independent dates, and recurring status. Black Hole status is always
-a user decision.
+- **Build a personal cosmos.** Start with an empty world, add dated experiences, or import a small
+  UTF-8 Markdown/TXT file. A synthetic demo is included for a quick walkthrough.
+- **Discover mechanisms, not just topics.** A Google ADK agent inspects existing evidence and uses
+  tools to create, reinforce, contradict, or propose a merge between pattern hypotheses.
+- **Inspect every connection.** Explore photographic nebulae and evidence stars in 3D, then open
+  a pattern to see the original experiences and dates behind it.
+- **Keep recurrence grounded.** Deterministic Python code requires at least three supporting
+  experiences on three independent dates before a hypothesis becomes recurring.
+- **Choose your response.** Mark patterns as Nebula, Constellation, or Black Hole; explore a
+  possible trajectory and draw an alternative orbit. Black Hole status remains a user decision.
 
-## User flow
+<details>
+<summary>Cosmos overview</summary>
 
-1. Load the sanitized demo or import a small UTF-8 `.md` / `.txt` file with explicit dates.
-2. PatternCurator discovers evidence-backed recurring patterns.
-3. Explore the resulting Pattern Cosmos; click a nebula to inspect exact evidence and contradiction.
-4. Mark a pattern as Nebula, Constellation, or Black Hole.
-5. Add one new experience and watch the agent route it into the existing evidence lifecycle.
-6. Refresh: the anonymous demo session remains in Firestore.
+![An overview of the interactive cosmos](docs/screenshots/cosmos-overview.png)
 
-Supported import boundaries are intentionally conservative:
+</details>
 
-```markdown
-# 2026-01-12
-A concrete event...
+*Screenshots show the competition prototype with synthetic demo experiences.*
 
-# 2026-02-18
-Another concrete event...
-```
-
-Plain `YYYY-MM-DD` lines and a single Markdown frontmatter `date:` are also accepted. Entries without
-a reliable date are skipped rather than guessed. Stable IDs are SHA-256-derived from source name,
-date, and original text, so importing the same entry twice is idempotent.
-
-## Google technologies
-
-- **Vertex AI:** `gemini-3.7-flash`
-- **Google Agent Development Kit:** ADK `2.8.0`
-- **Cloud Run:** public React + FastAPI service in `us-central1`
-- **Cloud Firestore:** anonymous-session state, experiences, patterns, evidence links, principles,
-  and agent run logs
-
-## Architecture
+## How it works
 
 ![Pattern Cosmos architecture](docs/architecture.svg)
 
-The React/Three.js client talks to a FastAPI service on Cloud Run. FastAPI invokes the Google ADK
-PatternCurator, which uses Gemini on Vertex AI and deterministic evidence tools. Firestore persists
-the state independently of Cloud Run's ephemeral filesystem.
+1. The React client sends a dated experience or a bounded note import to FastAPI.
+2. **PatternCurator**, built with Google ADK and Gemini on Vertex AI, examines the existing state
+   and calls evidence-management tools.
+3. Python applies the evidence rules, preserves contradictions, and updates the pattern graph.
+4. The client renders the result as an explorable cosmos. State uses local JSON in local mode
+   or Firestore in the hosted configuration.
 
-## Evidence and contradiction philosophy
+| Layer | Technology |
+|---|---|
+| Interface | React 19, TypeScript, Vite |
+| 3D rendering | Three.js, React Three Fiber, Drei, postprocessing |
+| API and evidence rules | Python, FastAPI, Pydantic |
+| Agent | Google Agent Development Kit, Gemini on Vertex AI |
+| Hosted infrastructure | Google Cloud Run, Cloud Firestore |
 
-- One event can create a **possible** hypothesis, never a recurring identity claim.
-- A pattern becomes **recurring** only after 3+ supporting experiences on 3+ independent dates.
-- Similar surface topics are not enough; the trigger-response-outcome mechanism must match.
-- Contradiction is preserved alongside support rather than silently discarded.
-- The UI says what the evidence supports, not what kind of person the user “is.”
+## Run locally
 
-## Local setup
+Requirements: **Python 3.11+**, **Node.js 22.12+**, and a Google Cloud project with Vertex AI
+enabled. AI discovery and projection features require your own Google Cloud authentication and
+available model access. The commands below use local JSON storage; Firestore is optional.
 
-Requirements: Python 3.11+, Node.js 20+, a Google Cloud project with Vertex AI access, and Application
-Default Credentials.
+From the repository root, in PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
-cd web
-npm ci
-npm run build
-cd ..
-$env:GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
-$env:GOOGLE_CLOUD_LOCATION="global"
-$env:GOOGLE_GENAI_USE_VERTEXAI="TRUE"
+npm --prefix web ci
+npm --prefix web run build
+```
+
+Authenticate with your own project using the Google Cloud CLI:
+
+```powershell
+gcloud auth application-default login
+
+$env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
+$env:GOOGLE_CLOUD_LOCATION = "global"
+$env:GOOGLE_GENAI_USE_VERTEXAI = "TRUE"
+$env:STATE_BACKEND = "local"
+# Optional: select another Vertex AI model available to your project.
+# $env:PATTERN_AGENT_MODEL = "YOUR_MODEL_ID"
+
 .\.venv\Scripts\python.exe -m uvicorn web_api:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`. Local mode uses local JSON. To test Firestore, create a native Firestore
-database and set `$env:STATE_BACKEND="firestore"` before starting the server.
+Open **http://127.0.0.1:8000**. Add `?demo=1` to explore the seeded demo.
+The original competition model default is `gemini-3.7-flash`; model availability and usage costs
+depend on your Google Cloud project. Do not commit credentials or private notes.
 
-## Deployment
+For frontend development, keep the API running and use `npm --prefix web run dev`.
+Vite proxies `/api` to port 8000. For a Firestore-backed instance, set `STATE_BACKEND=firestore`
+and configure your project's Firestore database and permissions. A multi-stage `Dockerfile`
+is included for container deployment.
 
-```powershell
-gcloud services enable aiplatform.googleapis.com run.googleapis.com `
-  firestore.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+### Import format
 
-gcloud run deploy pattern-cosmos --source . --region us-central1 `
-  --allow-unauthenticated --concurrency 1 --timeout 900 --memory 1Gi `
-  --set-env-vars "STATE_BACKEND=firestore,GOOGLE_CLOUD_LOCATION=global,PATTERN_AGENT_MODEL=gemini-3.7-flash"
+```markdown
+# 2026-01-12
+A concrete experience, in your own words.
+
+# 2026-02-18
+Another dated experience.
 ```
 
-The Cloud Run runtime service account needs `Vertex AI User` and `Cloud Datastore User` roles.
+Plain `YYYY-MM-DD` headings and a single Markdown frontmatter `date:` are also accepted.
+Undated entries are skipped. Imports are limited to 1 MB and 12 parsed entries per request;
+stable IDs prevent duplicate imports of the same source entries.
 
-## Privacy and demo data
+## Project structure
 
-The deployed app and repository contain only synthetic/sanitized experiences. Private diary
-experiments, credentials, local state, screenshots, and absolute local paths are excluded from both
-Git and Cloud Build. Uploaded text is stored only in the importer's anonymous Firestore session;
-there is no account system. Do not upload confidential records to the public demo.
+```text
+pattern_agent/                Agent tools, evidence lifecycle, import and persistence
+web/src/                     React interface and 3D cosmos
+web_api.py                   FastAPI endpoints and anonymous-session orchestration
+base_experiences.json         Synthetic demo experiences
+agent_detected_patterns.json  Demo pattern fixtures
+examples/                    Sanitized import example
+docs/                        Architecture and screenshots
+Dockerfile                   Frontend build and Python API container
+```
 
-The photographic renderer uses NASA/JPL-Caltech image `PIA14728` under the linked JPL image-use
-policy. Attribution metadata is stored beside the asset in
-`web/public/assets/nasa-lagoon-nebula-pia14728.source.json`.
+## Background and data
 
-## Repository map
+Created for the **[All Things Agentic Hackathon, August 2026](https://allthingsagentichackathon.devpost.com/)**.
+The original competition implementation and Git history are preserved from
+[Bitbucket](https://bitbucket.org/pattern-cosmos/pattern-cosmos/).
+The storyboard and submission checklist remain in the repository as historical preparation records.
 
-- `web/` — React, TypeScript, React Three Fiber, frozen D Photographic Hybrid Cosmos
-- `web_api.py` — FastAPI public API and anonymous session orchestration
-- `pattern_agent/agent.py` — Google ADK PatternCurator and tool definitions
-- `pattern_agent/state.py` — deterministic evidence lifecycle
-- `pattern_agent/importer.py` — conservative dated Markdown/TXT parser
-- `pattern_agent/firestore_store.py` — Firestore persistence adapter
-- `docs/architecture.svg` — submission architecture diagram
+The public demo uses synthetic/sanitized experiences and anonymous sessions. **Do not upload
+confidential journal entries to the public instance.** AI interpretations are hypotheses for
+reflection; the supporting and contradicting evidence remains available for inspection.
 
-## Future work (outside this hackathon MVP)
-
-Full Obsidian sync, a complete journal editor, mobile apps, calendar/time-tracker integrations,
-what-if simulations, astrology/birth-sky personalization, music generation, multi-user accounts, and
-additional visual experiments are intentionally out of scope.
-
-## Disclosure
-
-The project was created during the hackathon submission period. Standard open-source frameworks,
-AI coding assistance, and the attributed NASA/JPL image were used. The submitted product logic,
-evidence model, agent tools, integration, and experience design were built for this entry.
+The nebula texture uses **NASA/JPL-Caltech, PIA14728**. Source and attribution metadata are included
+in [`web/public/assets/nasa-lagoon-nebula-pia14728.source.json`](web/public/assets/nasa-lagoon-nebula-pia14728.source.json).

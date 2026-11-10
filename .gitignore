@@ -16,6 +16,7 @@ AGENTS.md
 !/base_experiences.json
 !/agent_detected_patterns.json
 *.png
+!docs/screenshots/*.png
 *.pdf
 run_error.json
 local_state.json
